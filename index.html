@@ -613,59 +613,7 @@ async function fetchMedicalDiagrams(query) {
     }
   }
 
-  // ── 1. Wikipedia REST Summary API (CORS-safe, always works) ──────────────
-  const terms = extractMedicalTerms(cleanQuery);
-  const wikiSearchTerms = [cleanQuery, ...terms].slice(0, 3);
-  
-  for (const term of wikiSearchTerms) {
-    if (diagrams.length >= 3) break;
-    try {
-      const res = await fetch(
-        `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(term)}`,
-        { headers: { 'Accept': 'application/json' } }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        if (data.thumbnail?.source) {
-          // Upscale the thumbnail for better quality
-          const src = data.thumbnail.source.replace(/\/\d+px-/, '/400px-');
-          addDiagram({
-            title: data.title,
-            src,
-            url: data.content_urls?.desktop?.page || `https://en.wikipedia.org/wiki/${encodeURIComponent(term)}`,
-            source: '📚 Wikipedia'
-          });
-        }
-      }
-    } catch (e) {}
-  }
-
-  // ── 2. Wikimedia Commons image search (reliable CORS) ───────────────────
-  if (diagrams.length < 3) {
-    try {
-      const searchTerm = terms[0] || cleanQuery;
-      const res = await fetch(
-        `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrsearch=${encodeURIComponent(searchTerm + ' anatomy diagram')}&gsrlimit=4&prop=imageinfo&iiprop=url|size&iiurlwidth=400&format=json&origin=*`
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const pages = Object.values(data.query?.pages || {});
-        for (const page of pages) {
-          const info = page.imageinfo?.[0];
-          if (info?.thumburl && (info.url.match(/\.(png|jpg|jpeg|svg)/i))) {
-            addDiagram({
-              title: page.title.replace('File:', '').replace(/\.[^/.]+$/, ''),
-              src: info.thumburl,
-              url: `https://commons.wikimedia.org/wiki/${encodeURIComponent(page.title)}`,
-              source: '🔬 Wikimedia Commons'
-            });
-          }
-        }
-      }
-    } catch (e) {}
-  }
-
-  // ── 3. Verified curated medical image map ───────────────────────────────
+  // ── PRIMARY SOURCE: Verified curated medical image map (English-only) ────────
   const medicalImageMap = {
     'heart': [
       'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/Heart_diagram-en.svg/400px-Heart_diagram-en.svg.png',
@@ -696,6 +644,9 @@ async function fetchMedicalDiagrams(query) {
     'neuron': [
       'https://upload.wikimedia.org/wikipedia/commons/thumb/9/92/Neuron_diagram_en.svg/400px-Neuron_diagram_en.svg.png'
     ],
+    'synapse': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d6/SynapseScheme_en.svg/400px-SynapseScheme_en.svg.png'
+    ],
     'dna': [
       'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/DNA_Structure%2BKey%2BLabelled.pn_NoBB.png/350px-DNA_Structure%2BKey%2BLabelled.pn_NoBB.png'
     ],
@@ -713,6 +664,27 @@ async function fetchMedicalDiagrams(query) {
     ],
     'stomach': [
       'https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/Stomach_diagram.svg/400px-Stomach_diagram.svg.png'
+    ],
+    'thyroid': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8e/Thyroid_gland_en.svg/400px-Thyroid_gland_en.svg.png'
+    ],
+    'pancreas': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/2/20/Pancreas_location_rel_to_other_organs.png/400px-Pancreas_location_rel_to_other_organs.png'
+    ],
+    'mitochondria': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d9/Mitochondria_%28structure%29-en.svg/400px-Mitochondria_%28structure%29-en.svg.png'
+    ],
+    'hormone': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2e/Hormone_steroid.svg/400px-Hormone_steroid.svg.png'
+    ],
+    'antibody': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0f/Antibody_IgG2.png/400px-Antibody_IgG2.png'
+    ],
+    'vaccine': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/d/db/Vaccination_basics_EN.svg/400px-Vaccination_basics_EN.svg.png'
+    ],
+    'stem cell': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Stem_cell_differentiation.svg/400px-Stem_cell_differentiation.svg.png'
     ],
     'skin': [
       'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c6/Skin_layers.png/400px-Skin_layers.png'
@@ -734,7 +706,9 @@ async function fetchMedicalDiagrams(query) {
     ]
   };
 
+  // Search curated map for matching terms
   for (const [term, urls] of Object.entries(medicalImageMap)) {
+    if (diagrams.length >= 5) break;
     if (medicalTerms.includes(term)) {
       for (const src of urls) {
         addDiagram({
@@ -747,26 +721,29 @@ async function fetchMedicalDiagrams(query) {
     }
   }
 
-  // ── 4. Fallback: reliable public medical images ──────────────────────────
+  // Fallback: generic medical images when no specific match found
   if (diagrams.length === 0) {
     const fallbacks = [
       {
-        title: 'Medical Anatomy',
+        title: 'Human Anatomy',
         src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/78/Gray1090.png/320px-Gray1090.png',
-        source: '📚 Gray\'s Anatomy'
+        source: '📚 Gray\'s Anatomy',
+        url: 'https://en.wikipedia.org/wiki/Anatomy'
       },
       {
-        title: 'Human Body Systems',
-        src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8d/Illu_body_cavities.jpg/300px-Illu_body_cavities.jpg',
-        source: '📚 Medical Reference'
-      },
-      {
-        title: 'Medical Cells',
+        title: 'Cell Structure',
         src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/48/Animal_cell_structure_en.svg/400px-Animal_cell_structure_en.svg.png',
-        source: '🔬 Biology Reference'
+        source: '📚 Medical Reference',
+        url: 'https://en.wikipedia.org/wiki/Cell_(biology)'
+      },
+      {
+        title: 'Body Systems',
+        src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8d/Illu_body_cavities.jpg/300px-Illu_body_cavities.jpg',
+        source: '📚 Anatomy',
+        url: 'https://en.wikipedia.org/wiki/Human_anatomy'
       }
     ];
-    fallbacks.forEach(f => addDiagram({ ...f, url: `https://en.wikipedia.org/wiki/Medicine` }));
+    fallbacks.forEach(f => addDiagram(f));
   }
 
   return diagrams.slice(0, 5);
