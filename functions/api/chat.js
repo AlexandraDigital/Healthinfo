@@ -1,75 +1,80 @@
 /**
- * Cloudflare Pages Function
- * Proxies Groq API calls server-side
- * Uses env.GROQ_API_KEY - no need to expose key to browser
+ * Cloudflare Pages Function: /api/chat
+ * Calls Groq API securely via backend
+ * Place in: functions/api/chat.js
  */
 
 export async function onRequest(context) {
-  const { request } = context;
-  
-  // Only accept POST requests
+  const { request, env } = context;
+
+  // Only allow POST requests
   if (request.method !== 'POST') {
     return new Response('Method not allowed', { status: 405 });
   }
 
   try {
-    // Get the request body
-    const { model, max_tokens, messages } = await request.json();
-    
-    // Validate required fields
-    if (!model || !messages || !Array.isArray(messages)) {
-      return new Response(JSON.stringify({ error: 'Missing required fields: model, messages' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
+    const body = await request.json();
+    const { model, messages, max_tokens } = body;
+
+    // Validate inputs
+    if (!messages || !Array.isArray(messages)) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid messages array' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
     }
 
-    // Get API key from environment variable
-    const groqKey = context.env.GROQ_API_KEY;
-    
-    if (!groqKey) {
-      return new Response(JSON.stringify({ error: 'GROQ_API_KEY not configured' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' }
-      });
+    // Get Groq API key from environment
+    const groqApiKey = env.GROQ_API_KEY;
+    if (!groqApiKey) {
+      console.error('❌ GROQ_API_KEY not configured in environment');
+      return new Response(
+        JSON.stringify({ error: 'API not configured on server' }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      );
     }
 
     // Call Groq API
-    const groqResponse = await fetch(
-      'https://api.groq.com/openai/v1/chat/completions',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${groqKey}`
-        },
-        body: JSON.stringify({
-          model: model,
-          max_tokens: max_tokens || 1024,
-          messages: messages
-        })
-      }
-    );
+    const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${groqApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: model || 'llama-3.3-70b-versatile',
+        messages: messages,
+        max_tokens: max_tokens || 1024,
+        temperature: 0.7,
+      }),
+    });
 
     if (!groqResponse.ok) {
-      const error = await groqResponse.json().catch(() => ({}));
-      return new Response(JSON.stringify({ error: error.error?.message || 'Groq API error' }), {
-        status: groqResponse.status,
-        headers: { 'Content-Type': 'application/json' }
-      });
+      const errorData = await groqResponse.json().catch(() => ({}));
+      console.error('Groq API error:', errorData);
+      return new Response(
+        JSON.stringify({
+          error: `Groq API error: ${errorData.error?.message || groqResponse.statusText}`,
+        }),
+        { status: groqResponse.status, headers: { 'Content-Type': 'application/json' } }
+      );
     }
 
-    const groqData = await groqResponse.json();
-    const responseText = groqData.choices?.[0]?.message?.content || 'No response received.';
+    const data = await groqResponse.json();
+    const response = data.choices?.[0]?.message?.content || 'No response';
 
-    return new Response(JSON.stringify({ response: responseText }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
+    return new Response(
+      JSON.stringify({ response }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
+    console.error('Chat function error:', error);
+    return new Response(
+      JSON.stringify({ error: error.message || 'Internal server error' }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    );
   }
 }

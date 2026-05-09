@@ -1,111 +1,90 @@
 /**
- * Cloudflare Pages Function
- * Fetches medical images via Google Custom Search API
- * Requires env variables:
- *   GOOGLE_API_KEY     — Google Cloud API key
- *   GOOGLE_SEARCH_CX   — Custom Search Engine ID (Programmable Search Engine)
+ * Cloudflare Pages Function: /api/generate-diagram
+ * Calls Google Custom Search API to find medical diagrams
+ * Place in: functions/api/generate-diagram.js
  */
 
 export async function onRequest(context) {
-  const { request } = context;
+  const { request, env } = context;
 
+  // Only allow POST requests
   if (request.method !== 'POST') {
     return new Response('Method not allowed', { status: 405 });
   }
 
   try {
-    const { query } = await request.json();
+    const body = await request.json();
+    const { query } = body;
 
-    if (!query || typeof query !== 'string' || query.trim().length === 0) {
-      return new Response(JSON.stringify({ error: 'Missing query parameter' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
+    if (!query || typeof query !== 'string') {
+      return new Response(
+        JSON.stringify({ error: 'Invalid query parameter' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
     }
 
-    const apiKey = context.env.GOOGLE_API_KEY;
-    const cx = context.env.GOOGLE_SEARCH_CX;
+    // Get API credentials from environment
+    const googleApiKey = env.GOOGLE_API_KEY;
+    const googleSearchCx = env.GOOGLE_SEARCH_CX;
 
-    if (!apiKey || !cx) {
-      return new Response(JSON.stringify({
-        error: 'GOOGLE_API_KEY and GOOGLE_SEARCH_CX must be set in Cloudflare Pages environment variables'
-      }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' }
-      });
+    if (!googleApiKey || !googleSearchCx) {
+      console.error('❌ Google Search API credentials not configured');
+      return new Response(
+        JSON.stringify({ error: 'Image search API not configured on server' }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      );
     }
 
-    // Bias search toward educational/medical diagrams
-    const searchQuery = `${query.trim()} medical diagram anatomy`;
+    // Call Google Custom Search API
+    const searchQuery = encodeURIComponent(`${query} diagram anatomy medical illustration`);
+    const googleUrl = `https://www.googleapis.com/customsearch/v1?q=${searchQuery}&cx=${googleSearchCx}&searchType=image&key=${googleApiKey}&num=6`;
 
-    const url = new URL('https://www.googleapis.com/customsearch/v1');
-    url.searchParams.set('key', apiKey);
-    url.searchParams.set('cx', cx);
-    url.searchParams.set('q', searchQuery);
-    url.searchParams.set('searchType', 'image');
-    url.searchParams.set('num', '4');
-    url.searchParams.set('imgType', 'photo');
-    url.searchParams.set('safe', 'active');
+    console.log('🔍 Calling Google Custom Search API for:', query);
 
-    const googleResponse = await fetch(url.toString());
+    const googleResponse = await fetch(googleUrl);
 
     if (!googleResponse.ok) {
-      const error = await googleResponse.json().catch(() => ({}));
-      console.error('Google API error:', googleResponse.status, JSON.stringify(error));
-      return new Response(JSON.stringify({
-        error: `Google API error ${googleResponse.status}: ${error.error?.message || 'Unknown'}`
-      }), {
-        status: googleResponse.status,
-        headers: { 'Content-Type': 'application/json' }
-      });
+      const errorData = await googleResponse.json().catch(() => ({}));
+      console.error('Google API error:', errorData);
+      return new Response(
+        JSON.stringify({
+          error: `Google Search error: ${errorData.error?.message || googleResponse.statusText}`,
+        }),
+        { status: googleResponse.status, headers: { 'Content-Type': 'application/json' } }
+      );
     }
 
     const data = await googleResponse.json();
-    const items = data.items || [];
 
-    if (items.length === 0) {
-      return new Response(JSON.stringify({ images: [] }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' }
+    // Parse results and extract image data
+    const images = [];
+    if (data.items && Array.isArray(data.items)) {
+      data.items.forEach((item) => {
+        if (item.link && item.title) {
+          images.push({
+            type: 'image',
+            src: item.link,
+            title: item.title,
+            source: item.displayLink || 'Google Images',
+          });
+        }
       });
     }
 
-    const images = items.map(item => {
-      // FIXED: Extract domain from contextLink for better source attribution
-      // displayLink is just the domain name, but we want the full source URL for proper credit
-      let source = item.displayLink;
-      if (item.image?.contextLink) {
-        try {
-          const contextUrl = new URL(item.image.contextLink);
-          source = contextUrl.hostname || item.displayLink;
-        } catch (e) {
-          // Fall back to displayLink if URL parsing fails
-          source = item.displayLink;
-        }
+    console.log('✅ Found', images.length, 'images');
+
+    return new Response(
+      JSON.stringify({ images }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
       }
-      
-      return {
-        type: 'image',
-        src: item.link,
-        thumbnail: item.image?.thumbnailLink || item.link,
-        title: item.title,
-        source: source,
-        contextLink: item.image?.contextLink || item.link,
-        width: item.image?.width,
-        height: item.image?.height
-      };
-    });
-
-    return new Response(JSON.stringify({ images }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
-
+    );
   } catch (error) {
-    console.error('Function error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
+    console.error('Generate diagram error:', error);
+    return new Response(
+      JSON.stringify({ error: error.message || 'Internal server error' }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    );
   }
 }
