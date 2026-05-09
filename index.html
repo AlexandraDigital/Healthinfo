@@ -326,11 +326,11 @@
         <button class="send-btn" onclick="sendMsg()" title="Ask Groq AI">
           <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
         </button>
-        <button class="send-btn" id="googleSearchBtn" onclick="searchGoogle()" title="Search Google (optional)" style="margin-left: 6px; background: #0ef0c4; color: #060b14;">
+        <button class="send-btn" id="googleSearchBtn" onclick="openCseModal()" title="Search Images on Google CSE" style="margin-left: 6px; background: #0ef0c4; color: #060b14;">
           <svg viewBox="0 0 24 24"><path d="M15.5 1h-8C6.12 1 5 2.12 5 3.5v17C5 21.88 6.12 23 7.5 23h8c1.38 0 2.5-1.12 2.5-2.5v-17C18 2.12 16.88 1 15.5 1zm-4 21c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm4.5-4H7V4h8v14z"/></svg>
         </button>
       </div>
-      <div class="input-hint">Enter to send with Groq · Click 🔍 to search Google</div>
+      <div class="input-hint">Enter to send with Groq · Click 🔍 to open image search</div>
     </div>
   </main>
 </div>
@@ -399,7 +399,65 @@
   .cse .gsc-control-cse { background: transparent !important; border: none !important; }
   .cse { font-family: 'Inter', sans-serif; }
   .gsc-adBlock { display: none; }
+  
+  /* CSE Modal */
+  .cse-modal-overlay {
+    position: fixed; inset: 0; background: rgba(6,11,20,0.95);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 200; backdrop-filter: blur(12px);
+  }
+  .cse-modal-overlay.hidden { display: none; }
+  
+  .cse-modal {
+    background: var(--bg2); border: 1px solid var(--border2);
+    border-radius: 18px; width: 90%; max-width: 920px; max-height: 90vh;
+    overflow: hidden; display: flex; flex-direction: column;
+    animation: modalIn 0.3s ease;
+  }
+  
+  .cse-modal-header {
+    padding: 24px 28px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  
+  .cse-modal-header h2 {
+    font-family: 'Poppins', sans-serif; font-size: 20px; font-weight: 700;
+    color: var(--text);
+  }
+  
+  .cse-modal-close {
+    background: transparent; border: none; color: var(--text2);
+    font-size: 28px; cursor: pointer; padding: 0; width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    transition: color 0.15s;
+  }
+  
+  .cse-modal-close:hover { color: var(--text); }
+  
+  .cse-modal-content {
+    flex: 1; overflow-y: auto; padding: 16px 28px;
+    scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+  }
+  
+  .cse-modal-content::-webkit-scrollbar { width: 6px; }
+  .cse-modal-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 </style>
+
+<!-- CSE Modal -->
+<div class="cse-modal-overlay hidden" id="cseModalOverlay">
+  <div class="cse-modal">
+    <div class="cse-modal-header">
+      <h2>🔍 Search Medical Images & Diagrams</h2>
+      <button class="cse-modal-close" onclick="closeCseModal()" title="Close">×</button>
+    </div>
+    <div class="cse-modal-content" id="cseModalContent">
+      <div class="gcse-wrapper" style="padding: 0; border: none; background: none;">
+        <div class="gcse-searchbox-only"></div>
+        <div class="gcse-searchresults-only"></div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <div class="gcse-wrapper" id="gcseWrapper">
   <div class="gcse-searchbox-only"></div>
@@ -553,6 +611,35 @@ function sendMsg() {
   const kw = text.replace(/[?!.,]/g,'').split(' ').filter(w => w.length > 3).slice(0,5).join(' ');
   submitQuestion(text, text, kw || text);
 }
+
+// Open CSE Modal
+function openCseModal() {
+  const inp = document.getElementById('userInput');
+  const text = inp.value.trim();
+  
+  // Open modal
+  document.getElementById('cseModalOverlay').classList.remove('hidden');
+  
+  // If there's search text, execute search
+  if (text) {
+    searchGoogle();
+  }
+}
+
+// Close CSE Modal
+function closeCseModal() {
+  document.getElementById('cseModalOverlay').classList.add('hidden');
+}
+
+// Close modal when clicking overlay background
+document.addEventListener('DOMContentLoaded', () => {
+  const overlay = document.getElementById('cseModalOverlay');
+  if (overlay) {
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) closeCseModal();
+    });
+  }
+});
 
 function searchGoogle() {
   const inp = document.getElementById('userInput');
