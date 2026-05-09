@@ -600,20 +600,13 @@ async function fetchMedicalDiagrams(query) {
       
       if (response.ok) {
         const data = await response.json();
-        console.log('✅ Response data received:', { hasSvg: !!data.svg, svgLength: data.svg?.length });
-        
-        let svgCode = data.svg;
-        
-        // SVG should be clean from the function, but do a quick validation
-        if (svgCode && svgCode.includes('<svg') && svgCode.includes('</svg>')) {
-          console.log('✨ Valid SVG detected, rendering diagram');
-          diagrams.push({
-            type: 'svg',
-            content: svgCode,
-            title: cleanQuery.charAt(0).toUpperCase() + cleanQuery.slice(1)
-          });
+        console.log('✅ Response data received:', { imageCount: data.images?.length });
+
+        if (data.images && data.images.length > 0) {
+          console.log('✨ Images received, adding to diagrams');
+          diagrams.push(...data.images);
         } else {
-          console.warn('⚠️ Invalid SVG structure. SVG content preview:', svgCode?.substring(0, 200));
+          console.warn('⚠️ No images returned from Google Search');
         }
       } else {
         const error = await response.json().catch(() => ({ error: 'Failed to parse error response' }));
