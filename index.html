@@ -579,80 +579,93 @@ async function fetchMedicalSources(query) {
   return sources.slice(0, 5);
 }
 
-/* ============ FETCH OPENSTAX & MEDLINEPLUS DIAGRAMS ============ */
+/* ============ FETCH REAL MEDICAL IMAGES FROM PUBLIC SOURCES ============ */
 async function fetchMedicalDiagrams(query) {
   const diagrams = [];
   const cleanQuery = query.replace(/[?!.]/g, '').trim();
+  const medicalTerms = cleanQuery.toLowerCase();
 
   try {
-    // 1. Fetch from MedlinePlus Health Topics API (free, no auth required)
-    const medlineRes = await fetch(
-      `https://wsearch.nlm.nih.gov/ws/query?db=healthTopics&term=${encodeURIComponent(cleanQuery)}&rettype=json&tool=healthinfo`,
-      { headers: { Accept: 'application/json' } }
+    // 1. Fetch from Wikimedia Commons (medical images - public domain/CC licensed)
+    const wikimediaRes = await fetch(
+      `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(cleanQuery)}&prop=images&format=json&origin=*`
     );
     
-    if (medlineRes.ok) {
-      const medlineData = await medlineRes.json();
-      if (medlineData.result?.uids?.length) {
-        const topicId = medlineData.result.uids[0];
-        const topicRes = await fetch(
-          `https://wsearch.nlm.nih.gov/ws/query?db=healthTopics&id=${topicId}&rettype=json&tool=healthinfo`
-        );
-        const topicData = await topicRes.json();
-        
-        if (topicData.result?.[topicId]?.document) {
-          const doc = topicData.result[topicId].document[0];
-          diagrams.push({
-            title: doc.title || cleanQuery,
-            src: 'https://www.nlm.nih.gov/images/nihlogo.png', // MedlinePlus branding
-            url: doc.uri || `https://medlineplus.gov/ency/article/${topicId}.htm`,
-            source: '📚 MedlinePlus (NIH)'
-          });
-        }
+    if (wikimediaRes.ok) {
+      const wikiData = await wikimediaRes.json();
+      const pages = Object.values(wikiData.query?.pages || {});
+      const imageNames = pages[0]?.images?.map(img => img.title).slice(0, 3) || [];
+      
+      for (const imgName of imageNames) {
+        try {
+          const imgRes = await fetch(
+            `https://commons.wikimedia.org/w/api.php?action=query&titles=${encodeURIComponent(imgName)}&prop=imageinfo&iiprop=url&format=json&origin=*`
+          );
+          if (imgRes.ok) {
+            const imgData = await imgRes.json();
+            const imgPages = Object.values(imgData.query?.pages || {});
+            const imageUrl = imgPages[0]?.imageinfo?.[0]?.url;
+            if (imageUrl && diagrams.length < 2) {
+              diagrams.push({
+                title: imgName.replace('File:', '').replace(/\.[^/.]+$/, ''),
+                src: imageUrl,
+                url: `https://commons.wikimedia.org/wiki/${encodeURIComponent(imgName)}`,
+                source: '🔬 Wikimedia Commons'
+              });
+            }
+          }
+        } catch (e) {}
       }
     }
   } catch (e) {
-    console.log('MedlinePlus fetch failed:', e.message);
+    console.log('Wikimedia fetch failed');
   }
 
-  try {
-    // 2. Fetch from OpenStax Books (free educational diagrams)
-    const openstaxRes = await fetch(
-      `https://api.openstax.org/v2/search?q=${encodeURIComponent(cleanQuery)}&limit=3`,
-      { headers: { Accept: 'application/json' } }
-    );
-    
-    if (openstaxRes.ok) {
-      const openstaxData = await openstaxRes.json();
-      if (openstaxData.results?.length) {
-        openstaxData.results.slice(0, 2).forEach(book => {
-          diagrams.push({
-            title: book.title,
-            src: book.cover_url || 'https://openstax.org/assets/og-image.png',
-            url: `https://openstax.org/details/books/${book.slug}`,
-            source: '📖 OpenStax'
-          });
-        });
-      }
+  // 2. Fallback: Use curated medical images from trusted public sources
+  const medicalImageMap = {
+    'heart': 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b9/Gray1220.png/280px-Gray1220.png',
+    'brain': 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0a/Brainmaps-En.png/280px-Brainmaps-En.png',
+    'lung': 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3b/Pulmonary_circulation.png/280px-Pulmonary_circulation.png',
+    'liver': 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/Liver_anatomical_position.PNG/280px-Liver_anatomical_position.PNG',
+    'kidney': 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Kidney_cross_section.svg/280px-Kidney_cross_section.svg.png',
+    'anatomy': 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0b/PositionalAnatomy.png/280px-PositionalAnatomy.png',
+    'bone': 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Skeleton_diagram.svg/200px-Skeleton_diagram.svg.png',
+    'muscle': 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/ce/Muscular_system.png/280px-Muscular_system.png',
+    'cell': 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6d/Cell_nucleus.svg/280px-Cell_nucleus.svg.png',
+  };
+
+  // Check for matching medical terms
+  for (const [term, imageUrl] of Object.entries(medicalImageMap)) {
+    if (medicalTerms.includes(term) && diagrams.length < 3) {
+      diagrams.push({
+        title: term.charAt(0).toUpperCase() + term.slice(1),
+        src: imageUrl,
+        url: `https://en.wikipedia.org/wiki/${encodeURIComponent(term)}`,
+        source: '📚 Medical Reference'
+      });
     }
-  } catch (e) {
-    console.log('OpenStax fetch failed:', e.message);
   }
 
-  // 3. If no diagrams found, provide fallback links to search resources
+  // 3. If no matches, use generic medical stock images
   if (diagrams.length === 0) {
     diagrams.push(
       {
-        title: 'Search Google Images for Diagrams',
-        src: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"%3E%3Crect fill="%234285F4" width="100" height="100" rx="10"/%3E%3Ctext x="50" y="50" font-size="50" fill="white" text-anchor="middle" dominant-baseline="middle"%3E🔍%3C/text%3E%3C/svg%3E',
-        url: `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(cleanQuery + ' medical diagram')}`,
-        source: '🔍 Google Images'
-      },
-      {
-        title: 'View on MedlinePlus',
-        src: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"%3E%3Crect fill="%23009F4D" width="100" height="100" rx="10"/%3E%3Ctext x="50" y="50" font-size="40" fill="white" text-anchor="middle" dominant-baseline="middle"%3E📚%3C/text%3E%3C/svg%3E',
+        title: 'Healthcare Professional',
+        src: 'https://images.unsplash.com/photo-1576091160550-112173f7f869?w=500&h=300&fit=crop',
         url: `https://medlineplus.gov/search/search_results.html?query=${encodeURIComponent(cleanQuery)}`,
         source: '📚 MedlinePlus'
+      },
+      {
+        title: 'Medical Research',
+        src: 'https://images.unsplash.com/photo-1530026405289-c5c17675b8c4?w=500&h=300&fit=crop',
+        url: `https://www.ncbi.nlm.nih.gov/pmc/?term=${encodeURIComponent(cleanQuery)}`,
+        source: '📖 PubMed Central'
+      },
+      {
+        title: 'Medical Education',
+        src: 'https://images.unsplash.com/photo-1487180144351-b8472da7d491?w=500&h=300&fit=crop',
+        url: `https://scholar.google.com/scholar?q=${encodeURIComponent(cleanQuery)}`,
+        source: '🎓 Google Scholar'
       }
     );
   }
