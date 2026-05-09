@@ -27,7 +27,7 @@ export async function onRequest(context) {
     const geminiKey = context.env.GEMINI_API_KEY;
     
     if (!geminiKey) {
-      return new Response(JSON.stringify({ error: 'GEMINI_API_KEY not configured' }), {
+      return new Response(JSON.stringify({ error: 'GEMINI_API_KEY not configured - make sure it\'s set in Cloudflare Pages environment variables' }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' }
       });
