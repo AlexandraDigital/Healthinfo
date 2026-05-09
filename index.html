@@ -323,11 +323,14 @@
     <div class="input-area">
       <div class="input-row">
         <textarea id="userInput" rows="1" placeholder="Ask anything about health, anatomy, or medical technology…" onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
-        <button class="send-btn" onclick="sendMsg()" title="Send">
+        <button class="send-btn" onclick="sendMsg()" title="Ask Groq AI">
           <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
         </button>
+        <button class="send-btn" id="googleSearchBtn" onclick="searchGoogle()" title="Search Google (optional)" style="margin-left: 6px; background: #0ef0c4; color: #060b14;">
+          <svg viewBox="0 0 24 24"><path d="M15.5 1h-8C6.12 1 5 2.12 5 3.5v17C5 21.88 6.12 23 7.5 23h8c1.38 0 2.5-1.12 2.5-2.5v-17C18 2.12 16.88 1 15.5 1zm-4 21c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm4.5-4H7V4h8v14z"/></svg>
+        </button>
       </div>
-      <div class="input-hint">Enter to send · Shift+Enter for new line</div>
+      <div class="input-hint">Enter to send with Groq · Click 🔍 to search Google</div>
     </div>
   </main>
 </div>
@@ -475,7 +478,8 @@ function clearChat() {
   document.getElementById('topbarSub').textContent = 'Select a topic or ask anything';
   document.getElementById('welcome').style.display = 'flex';
   document.getElementById('chatWrap').classList.remove('visible');
-  document.getElementById('gcseWrapper').classList.remove('visible');
+  const gcseWrapper = document.getElementById('gcseWrapper');
+  if (gcseWrapper) gcseWrapper.classList.remove('visible');
 }
 
 function selectTopic(i, el) {
@@ -504,6 +508,27 @@ function sendMsg() {
   showChat();
   const kw = text.replace(/[?!.,]/g,'').split(' ').filter(w => w.length > 3).slice(0,5).join(' ');
   submitQuestion(text, text, kw || text);
+}
+
+function searchGoogle() {
+  const inp = document.getElementById('userInput');
+  const text = inp.value.trim();
+  if (!text) {
+    alert('Please enter a search term first!');
+    return;
+  }
+  
+  // Show Google Custom Search results panel
+  const gcseWrapper = document.getElementById('gcseWrapper');
+  if (gcseWrapper) gcseWrapper.classList.add('visible');
+  
+  // Execute Google Custom Search
+  if (window.google && window.google.search && window.google.search.cse && window.google.search.cse.element) {
+    console.log('🔍 Searching Google CSE for:', text);
+    window.google.search.cse.element.getElement(0).execute(text);
+  } else {
+    console.warn('⚠️ Google Custom Search not loaded yet. Try again in a moment.');
+  }
 }
 
 /* ============ RENDER ============ */
@@ -799,17 +824,6 @@ async function submitQuestion(question, displayText, searchQuery) {
 
     const srcBlock = buildSources(sources, images);
     if (srcBlock) content.appendChild(srcBlock);
-    
-    console.log('✅ Response complete');
-    
-    // Automatically search Google Custom Search with the same query
-    setTimeout(() => {
-      if (window.google && window.google.search && window.google.search.cse && window.google.search.cse.element) {
-        const searchTerm = searchQuery || question;
-        console.log('🔍 Triggering Google Custom Search for:', searchTerm);
-        window.google.search.cse.element.getElement(0).execute(searchTerm);
-      }
-    }, 500);
 
   } catch (e) {
     bubble.classList.remove('loading');
