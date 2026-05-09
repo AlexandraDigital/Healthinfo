@@ -351,8 +351,30 @@
       // Enable search button if it was disabled
       const searchBtn = document.getElementById('googleSearchBtn');
       if (searchBtn) searchBtn.disabled = false;
+    },
+    // Suppress Google's error dialogs - we'll handle them gracefully
+    errorCallback: function() {
+      console.warn('⚠️ Google CSE encountered an error, falling back to medical sources search');
+      window.cseError = true;
     }
   };
+  
+  // Hide Google's error dialogs by monitoring and removing them
+  function hideGoogleErrorDialogs() {
+    const errorDialogs = document.querySelectorAll('[role="dialog"]');
+    errorDialogs.forEach(dialog => {
+      const text = dialog.textContent || '';
+      if (text.includes('Google Search') || text.includes('too long') || text.includes('timeout')) {
+        console.log('🚫 Hiding Google CSE error dialog');
+        dialog.style.display = 'none';
+      }
+    });
+  }
+  
+  // Start monitoring for error dialogs after a delay
+  setTimeout(() => {
+    setInterval(hideGoogleErrorDialogs, 500);
+  }, 1000);
 </script>
 <script async src="https://cse.google.com/cse.js?cx=11668e4a73a384823"></script>
 
@@ -572,15 +594,47 @@ function searchGoogle() {
     return;
   }
   
-  // If CSE not ready, wait and retry up to 5 times
-  if (window.cseAttempts < window.cseMaxAttempts) {
+  // If CSE not ready, wait and retry up to 3 times (shorter timeout)
+  if (!window.cseAttempts) window.cseAttempts = 0;
+  
+  if (window.cseAttempts < 3) {
     window.cseAttempts++;
-    console.log(`⏳ CSE not ready yet (attempt ${window.cseAttempts}/${window.cseMaxAttempts}). Retrying in 300ms...`);
+    console.log(`⏳ CSE not ready yet (attempt ${window.cseAttempts}/3). Retrying in 300ms...`);
     setTimeout(searchGoogle, 300);
   } else {
-    console.error('❌ Google Custom Search failed to load. Please refresh the page.');
-    alert('Google Search is taking too long to load. Please refresh the page and try again.');
+    // CSE failed or timed out - use fallback medical sources instead
+    console.log('⚠️ Google CSE unavailable. Using medical sources fallback...');
     window.cseAttempts = 0;
+    fallbackMedicalSearch(text);
+  }
+}
+
+// Fallback search using legitimate medical sources
+async function fallbackMedicalSearch(query) {
+  console.log('🏥 Fetching medical sources for:', query);
+  
+  const gcseWrapper = document.getElementById('gcseWrapper');
+  if (!gcseWrapper) return;
+  
+  // Clear the wrapper and show loading state
+  gcseWrapper.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text2);">📚 Loading medical sources...</div>';
+  
+  try {
+    const sources = await fetchMedicalSources(query);
+    const images = await fetchMedicalDiagrams(query);
+    
+    // Build and display results
+    if (sources.length > 0 || images.length > 0) {
+      const resultBlock = buildSources(sources, images);
+      gcseWrapper.innerHTML = '';
+      gcseWrapper.appendChild(resultBlock);
+      console.log('✅ Medical sources loaded successfully');
+    } else {
+      gcseWrapper.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text2);">⚠️ No results found. Try a different search term.</div>';
+    }
+  } catch (e) {
+    console.error('❌ Fallback search error:', e);
+    gcseWrapper.innerHTML = `<div style="padding: 20px; text-align: center; color: #f87171;">⚠️ ${esc(e.message)}</div>`;
   }
 }
 
