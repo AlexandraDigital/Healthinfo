@@ -582,37 +582,49 @@ async function fetchMedicalDiagrams(query) {
   const diagrams = [];
   const cleanQuery = query.replace(/[?!.]/g, '').trim();
   
+  console.log('🔬 Fetching diagrams for:', cleanQuery);
+  
   if (cleanQuery.length > 0) {
     try {
       // Call Cloudflare Pages Function for Gemini diagram generation
       // The function uses env.GEMINI_API_KEY, so the key is never exposed to the browser
+      console.log('📡 Calling /api/generate-diagram...');
+      
       const response = await fetch('/api/generate-diagram', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: cleanQuery })
       });
       
+      console.log('📊 Response status:', response.status, response.statusText);
+      
       if (response.ok) {
         const data = await response.json();
+        console.log('✅ Response data received:', { hasSvg: !!data.svg, svgLength: data.svg?.length });
+        
         let svgCode = data.svg;
         
         // SVG should be clean from the function, but do a quick validation
         if (svgCode && svgCode.includes('<svg') && svgCode.includes('</svg>')) {
+          console.log('✨ Valid SVG detected, rendering diagram');
           diagrams.push({
             type: 'svg',
             content: svgCode,
             title: cleanQuery.charAt(0).toUpperCase() + cleanQuery.slice(1)
           });
+        } else {
+          console.warn('⚠️ Invalid SVG structure. SVG content preview:', svgCode?.substring(0, 200));
         }
       } else {
-        const error = await response.json().catch(() => ({}));
-        console.log('Diagram generation error:', error.error || 'Unknown error');
+        const error = await response.json().catch(() => ({ error: 'Failed to parse error response' }));
+        console.error('❌ API Error Response:', error);
       }
     } catch (e) {
-      console.log('Diagram fetch error:', e.message);
+      console.error('💥 Network/Fetch Error:', e.message, e.stack);
     }
   }
   
+  console.log('📈 Final diagrams array:', diagrams);
   return diagrams;
 }
 
@@ -622,6 +634,8 @@ function buildSources(sources, images) {
 
   // Show images if available - embedded as visual gallery
   if (images?.length) {
+    console.log('🖼️ Rendering gallery with', images.length, 'images');
+    
     const imgGallery = document.createElement('div');
     imgGallery.className = 'image-gallery';
     
@@ -630,7 +644,9 @@ function buildSources(sources, images) {
     lbl.textContent = '📸 Medical Images & Diagrams';
     imgGallery.insertAdjacentElement('beforebegin', lbl);
     
-    images.forEach(img => {
+    images.forEach((img, idx) => {
+      console.log(`Processing image ${idx}:`, img.type);
+      
       if (img.type === 'svg') {
         // Render SVG diagram directly
         const svgWrapper = document.createElement('div');
@@ -644,6 +660,7 @@ function buildSources(sources, images) {
         `;
         svgWrapper.innerHTML = img.content;
         imgGallery.appendChild(svgWrapper);
+        console.log('✅ SVG rendered');
       } else {
         // Render regular image
         const imgCard = document.createElement('div');
@@ -655,6 +672,7 @@ function buildSources(sources, images) {
         imgEl.alt = img.title;
         imgEl.loading = 'lazy';
         imgEl.onerror = function() { 
+          console.warn('Image failed to load:', img.src);
           this.style.display = 'none'; 
           this.parentElement.style.opacity = '0.5';
         };
@@ -682,9 +700,12 @@ function buildSources(sources, images) {
           document.body.appendChild(modal);
         };
         imgGallery.appendChild(imgCard);
+        console.log('✅ Regular image rendered');
       }
     });
     wrap.appendChild(imgGallery);
+  } else {
+    console.log('⚠️ No images to render');
   }
 
   // Show sources
@@ -745,6 +766,8 @@ async function submitQuestion(question, displayText, searchQuery) {
   const { content, bubble } = addAiShell();
 
   try {
+    console.log('🚀 Submitting question, fetching Groq + diagrams + sources in parallel...');
+    
     const [reply, sources, images] = await Promise.all([
       callGroq(question),
       fetchMedicalSources(searchQuery || question),
@@ -757,10 +780,13 @@ async function submitQuestion(question, displayText, searchQuery) {
 
     const srcBlock = buildSources(sources, images);
     if (srcBlock) content.appendChild(srcBlock);
+    
+    console.log('✅ Response complete');
 
   } catch (e) {
     bubble.classList.remove('loading');
     bubble.innerHTML = `<span style="color:#f87171;">⚠ ${esc(e.message)} — check your API key or try again.</span>`;
+    console.error('❌ Submit error:', e);
   }
 
   document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
