@@ -269,7 +269,7 @@
     </div>
 
     <button class="start-btn" id="startBtn" onclick="saveKey()" disabled>Save Fallback API Key</button>
-    <div class="modal-note">Best practice: Set <strong>window.GROQ_API_KEY</strong> before page loads (via script tag or deployment config). Or save here as fallback.</div>
+    <div class="modal-note">Set <strong>GROQ_API_KEY</strong> environment variable, or save here as fallback.</div>
   </div>
 </div>
 
@@ -334,8 +334,8 @@
 
 <script>
 /* ============ STATE ============ */
-// API key from environment variable (set window.GROQ_API_KEY before page loads)
-let groqKey = window.GROQ_API_KEY || '';
+// API key from environment variable
+let groqKey = process.env?.GROQ_API_KEY || window.GROQ_API_KEY || '';
 let selectedModel = localStorage.getItem('mediq_model') || 'llama-3.3-70b-versatile';
 let history = [];
 let isLoading = false;
