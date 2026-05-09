@@ -35,9 +35,9 @@ export async function onRequest(context) {
 
     const cleanQuery = query.replace(/[?!.]/g, '').trim();
     
-    // Call Gemini API
+    // Call Gemini API using gemini-2.0-flash (latest model)
     const geminiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(geminiKey)}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(geminiKey)}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -65,6 +65,7 @@ Return ONLY the complete SVG code.`
 
     if (!geminiResponse.ok) {
       const error = await geminiResponse.json().catch(() => ({}));
+      console.error('Gemini API error:', geminiResponse.status, error);
       return new Response(JSON.stringify({ error: 'Gemini API error: ' + (error.error?.message || 'Unknown error') }), {
         status: geminiResponse.status,
         headers: { 'Content-Type': 'application/json' }
@@ -75,6 +76,7 @@ Return ONLY the complete SVG code.`
     let svgCode = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
     if (!svgCode) {
+      console.error('No SVG content generated from Gemini');
       return new Response(JSON.stringify({ error: 'No SVG content generated' }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' }
@@ -91,6 +93,7 @@ Return ONLY the complete SVG code.`
 
     // Validate SVG structure
     if (!svgCode.includes('<svg') || !svgCode.includes('</svg>')) {
+      console.error('Invalid SVG generated:', svgCode.substring(0, 200));
       return new Response(JSON.stringify({ error: 'Invalid SVG generated' }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' }
@@ -102,6 +105,7 @@ Return ONLY the complete SVG code.`
       headers: { 'Content-Type': 'application/json' }
     });
   } catch (error) {
+    console.error('Function error:', error);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }
