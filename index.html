@@ -579,62 +579,36 @@ async function fetchMedicalSources(query) {
   return sources.slice(0, 5);
 }
 
-/* ============ RELEVANT MEDICAL IMAGES ============ */
-async function fetchRelevantImages(query) {
-  const images = [];
+/* ============ RELEVANT MEDICAL IMAGES (GOOGLE SEARCH) ============ */
+function generateImageSearchLinks(query) {
+  const cleanQuery = query.replace(/[?!.]/g, '').trim();
   
-  // 1. Pixabay (free stock photos - CORS friendly, reliable)
-  try {
-    const pixUrl = `https://pixabay.com/api/?q=${encodeURIComponent('medical ' + query)}&image_type=photo&orientation=horizontal&safesearch=true&per_page=4&key=8369270-90bac13efb4f21bf6f08b82e1`;
-    const pixData = await fetch(pixUrl).then(r => r.json()).catch(() => null);
-    if (pixData?.hits?.length) {
-      pixData.hits.forEach(photo => {
-        images.push({
-          src: photo.webformatURL,
-          title: photo.tags || query,
-          source: '🖼️ Pixabay',
-          url: photo.pageURL
-        });
-      });
+  return [
+    {
+      title: '🔍 Google Images - Medical Diagrams',
+      src: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"%3E%3Crect fill="%234285F4" width="100" height="100" rx="10"/%3E%3Ctext x="50" y="50" font-size="60" fill="white" text-anchor="middle" dominant-baseline="middle"%3EG%3C/text%3E%3C/svg%3E',
+      url: `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(cleanQuery + ' medical diagram')}&tbs=isz:lt,islt:qsvga`,
+      source: '🔍 Google Images'
+    },
+    {
+      title: '📚 Google Scholar Images - Research',
+      src: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"%3E%3Crect fill="%234D90FE" width="100" height="100" rx="10"/%3E%3Ctext x="50" y="50" font-size="50" fill="white" text-anchor="middle" dominant-baseline="middle"%3E🎓%3C/text%3E%3C/svg%3E',
+      url: `https://scholar.google.com/scholar?q=${encodeURIComponent(cleanQuery + ' medical illustrations')}&tbm=isch`,
+      source: '📚 Google Scholar'
+    },
+    {
+      title: '🏥 PubMed Images - Clinical Figures',
+      src: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"%3E%3Crect fill="%23009F4D" width="100" height="100" rx="10"/%3E%3Ctext x="50" y="50" font-size="50" fill="white" text-anchor="middle" dominant-baseline="middle"%3E+%3C/text%3E%3C/svg%3E',
+      url: `https://www.ncbi.nlm.nih.gov/pmc/?term=${encodeURIComponent(cleanQuery)} AND figures`,
+      source: '🏥 PubMed'
+    },
+    {
+      title: '🔬 Wikimedia Medical - Scientific',
+      src: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"%3E%3Crect fill="%23333333" width="100" height="100" rx="10"/%3E%3Ctext x="50" y="50" font-size="50" fill="white" text-anchor="middle" dominant-baseline="middle"%3E🔬%3C/text%3E%3C/svg%3E',
+      url: `https://commons.wikimedia.org/w/index.php?search=${encodeURIComponent(cleanQuery + ' medical')}&title=Special:MediaSearch&go=Go`,
+      source: '🔬 Wikimedia'
     }
-  } catch {}
-  
-  // 2. Unsplash (free professional images - CORS friendly)
-  if (images.length < 3) {
-    try {
-      const unsplashUrl = `https://api.unsplash.com/search/photos?query=medical%20${encodeURIComponent(query)}&per_page=3&client_id=d8d34e0f649f3abe4dc1cf9e2d1295a5cf5a0ab73903df3a9d8f9a0f3d0e1f3a`;
-      const unsplashData = await fetch(unsplashUrl).then(r => r.json()).catch(() => null);
-      if (unsplashData?.results?.length) {
-        unsplashData.results.forEach(photo => {
-          images.push({
-            src: photo.urls.regular,
-            title: photo.alt_description || query,
-            source: '📸 Unsplash',
-            url: photo.links.html
-          });
-        });
-      }
-    } catch {}
-  }
-  
-  // 3. PubMed Central (NIH research figures - if we get lucky with URL structure)
-  if (images.length < 4) {
-    try {
-      const pubUrl = `https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi?query=${encodeURIComponent(query)}&format=json&retmax=1`;
-      const pubData = await fetch(pubUrl).then(r => r.json()).catch(() => null);
-      if (pubData?.result?.uids?.length) {
-        const pmcId = pubData.result.uids[0];
-        images.push({
-          src: `https://www.ncbi.nlm.nih.gov/pmc/articles/PMC${pmcId}/bin/gr1_lrg.jpg`,
-          title: `Research Article: ${query}`,
-          source: '📊 PubMed',
-          url: `https://www.ncbi.nlm.nih.gov/pmc/?term=${encodeURIComponent(query)}`
-        });
-      }
-    } catch {}
-  }
-  
-  return images.slice(0, 4); // Max 4 images
+  ];
 }
 
 function buildSources(sources, images) {
@@ -712,16 +686,16 @@ async function submitQuestion(question, displayText, searchQuery) {
   const { content, bubble } = addAiShell();
 
   try {
-    const [reply, sources, images] = await Promise.all([
+    const [reply, sources] = await Promise.all([
       callGroq(question),
       fetchMedicalSources(searchQuery || question),
-      fetchRelevantImages(searchQuery || question),
     ]);
 
     bubble.classList.remove('loading');
     bubble.innerHTML = fmt(reply);
     history.push({ role:'assistant', content: reply });
 
+    const images = generateImageSearchLinks(searchQuery || question);
     const srcBlock = buildSources(sources, images);
     if (srcBlock) content.appendChild(srcBlock);
 
