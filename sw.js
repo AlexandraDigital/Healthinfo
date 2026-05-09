@@ -26,6 +26,7 @@ self.addEventListener('install', event => {
 // Fetch event
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
+  const isExternalResource = url.hostname !== self.location.hostname;
   
   // IMPORTANT: Skip caching for API calls - let them go directly to network
   if (url.pathname.startsWith('/api/')) {
@@ -41,23 +42,43 @@ self.addEventListener('fetch', event => {
     );
   }
   
-  // Skip caching for external scripts (Google CSE, fonts, etc.)
-  if (url.hostname !== new URL(event.request.url).hostname) {
+  // Handle external resources (Google Fonts, Google CSE, etc.) with graceful fallback
+  if (isExternalResource) {
     return event.respondWith(
-      fetch(event.request).catch(error => {
-        console.warn('⚠️ External resource failed to load:', url.hostname);
-        return new Response('External resource unavailable', { status: 503 });
-      })
+      fetch(event.request)
+        .then(response => {
+          // Log success for debugging
+          console.log('✅ External resource loaded:', url.hostname);
+          return response;
+        })
+        .catch(error => {
+          // Gracefully handle external resource failures
+          console.warn('⚠️ External resource unavailable:', url.hostname, error.message);
+          
+          // For CSS files, return empty CSS instead of error
+          if (event.request.destination === 'style') {
+            return new Response('/* External stylesheet unavailable - app will use defaults */', {
+              status: 200,
+              headers: { 'Content-Type': 'text/css' }
+            });
+          }
+          
+          // For other external resources, return error response
+          return new Response('External resource unavailable', { status: 503 });
+        })
     );
   }
   
-  // Cache-first strategy for static assets (GET only)
+  // Cache-first strategy for local static assets (GET only)
   if (event.request.method !== 'GET') return;
   
   event.respondWith(
     caches.match(event.request)
       .then(response => {
-        if (response) return response;
+        if (response) {
+          console.log('📦 Serving from cache:', url.pathname);
+          return response;
+        }
         
         return fetch(event.request).then(response => {
           // Don't cache non-successful responses
@@ -67,7 +88,7 @@ self.addEventListener('fetch', event => {
           caches.open(CACHE_NAME)
             .then(cache => {
               cache.put(event.request, responseClone).catch(err => {
-                console.warn('⚠️ Failed to cache response:', err.message);
+                console.warn('⚠️ Failed to cache response:', url.pathname, err.message);
               });
             })
             .catch(err => {
@@ -76,8 +97,16 @@ self.addEventListener('fetch', event => {
           
           return response;
         }).catch(error => {
-          console.warn('⚠️ Fetch failed, returning cached version:', error.message);
+          console.warn('⚠️ Fetch failed for:', url.pathname);
+          // Try to return cached version as fallback
           return caches.match(event.request)
+            .then(cachedResponse => {
+              if (cachedResponse) {
+                console.log('📦 Serving fallback from cache:', url.pathname);
+                return cachedResponse;
+              }
+              return new Response('Offline - resource not cached', { status: 503 });
+            })
             .catch(() => new Response('Offline - resource not cached', { status: 503 }));
         });
       })
