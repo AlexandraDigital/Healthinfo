@@ -585,120 +585,188 @@ async function fetchMedicalSources(query) {
 }
 
 /* ============ FETCH REAL MEDICAL IMAGES FROM MULTIPLE SOURCES ============ */
+// Extract meaningful medical terms from a query string
+function extractMedicalTerms(query) {
+  const stopWords = new Set(['what','is','are','how','does','do','the','a','an','of','in','to','for','on','and','or','about','tell','me','explain','describe']);
+  const words = query.toLowerCase().replace(/[?!.,]/g, '').split(/\s+/);
+  const filtered = words.filter(w => w.length > 3 && !stopWords.has(w));
+  
+  // Also try multi-word medical terms
+  const phrases = [];
+  for (let i = 0; i < words.length - 1; i++) {
+    phrases.push(`${words[i]} ${words[i+1]}`);
+  }
+  return [...phrases.slice(0, 2), ...filtered].slice(0, 4);
+}
+
 async function fetchMedicalDiagrams(query) {
   const diagrams = [];
   const cleanQuery = query.replace(/[?!.]/g, '').trim();
   const medicalTerms = cleanQuery.toLowerCase();
+  const seen = new Set();
 
-  // 1. Wikimedia Commons (best quality medical diagrams)
-  try {
-    const wikimediaRes = await fetch(
-      `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(cleanQuery)}&prop=images&format=json&origin=*`
-    );
-    
-    if (wikimediaRes.ok) {
-      const wikiData = await wikimediaRes.json();
-      const pages = Object.values(wikiData.query?.pages || {});
-      const imageNames = pages[0]?.images?.map(img => img.title).slice(0, 3) || [];
-      
-      for (const imgName of imageNames) {
-        try {
-          const imgRes = await fetch(
-            `https://commons.wikimedia.org/w/api.php?action=query&titles=${encodeURIComponent(imgName)}&prop=imageinfo&iiprop=url&format=json&origin=*`
-          );
-          if (imgRes.ok) {
-            const imgData = await imgRes.json();
-            const imgPages = Object.values(imgData.query?.pages || {});
-            const imageUrl = imgPages[0]?.imageinfo?.[0]?.url;
-            if (imageUrl && diagrams.length < 2) {
-              diagrams.push({
-                title: imgName.replace('File:', '').replace(/\.[^/.]+$/, ''),
-                src: imageUrl,
-                url: `https://commons.wikimedia.org/wiki/${encodeURIComponent(imgName)}`,
-                source: '🔬 Wikimedia Commons'
-              });
-            }
-          }
-        } catch (e) {}
-      }
+  // Helper: add diagram only if not a dupe
+  function addDiagram(d) {
+    if (!seen.has(d.src) && diagrams.length < 5) {
+      seen.add(d.src);
+      diagrams.push(d);
     }
-  } catch (e) {
-    console.log('Wikimedia fetch failed');
   }
 
-  // 2. Google Images via DuckDuckGo (no API key needed)
-  try {
-    const ddgRes = await fetch(
-      `https://duckduckgo.com/?q=${encodeURIComponent(cleanQuery + ' medical diagram')}&iax=images&ia=images`,
-      { headers: { 'User-Agent': 'Mozilla/5.0' } }
-    ).then(r => r.text()).catch(() => null);
-    
-    if (ddgRes) {
-      const imageMatches = ddgRes.match(/https:\/\/[^"<>]*\.(?:jpg|jpeg|png|gif|webp)/gi) || [];
-      imageMatches.slice(0, 3).forEach(url => {
-        if (diagrams.length < 4 && !diagrams.some(d => d.src === url)) {
-          diagrams.push({
-            title: cleanQuery.charAt(0).toUpperCase() + cleanQuery.slice(1),
-            src: url,
-            url: `https://www.google.com/search?q=${encodeURIComponent(cleanQuery)}&tbm=isch`,
-            source: '🔍 Google Images'
+  // ── 1. Wikipedia REST Summary API (CORS-safe, always works) ──────────────
+  const terms = extractMedicalTerms(cleanQuery);
+  const wikiSearchTerms = [cleanQuery, ...terms].slice(0, 3);
+  
+  for (const term of wikiSearchTerms) {
+    if (diagrams.length >= 3) break;
+    try {
+      const res = await fetch(
+        `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(term)}`,
+        { headers: { 'Accept': 'application/json' } }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        if (data.thumbnail?.source) {
+          // Upscale the thumbnail for better quality
+          const src = data.thumbnail.source.replace(/\/\d+px-/, '/400px-');
+          addDiagram({
+            title: data.title,
+            src,
+            url: data.content_urls?.desktop?.page || `https://en.wikipedia.org/wiki/${encodeURIComponent(term)}`,
+            source: '📚 Wikipedia'
           });
         }
-      });
-    }
-  } catch (e) {
-    console.log('Google Images fetch failed (expected)');
+      }
+    } catch (e) {}
   }
 
-  // 3. Curated medical images from Wikipedia
+  // ── 2. Wikimedia Commons image search (reliable CORS) ───────────────────
+  if (diagrams.length < 3) {
+    try {
+      const searchTerm = terms[0] || cleanQuery;
+      const res = await fetch(
+        `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrsearch=${encodeURIComponent(searchTerm + ' anatomy diagram')}&gsrlimit=4&prop=imageinfo&iiprop=url|size&iiurlwidth=400&format=json&origin=*`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const pages = Object.values(data.query?.pages || {});
+        for (const page of pages) {
+          const info = page.imageinfo?.[0];
+          if (info?.thumburl && (info.url.match(/\.(png|jpg|jpeg|svg)/i))) {
+            addDiagram({
+              title: page.title.replace('File:', '').replace(/\.[^/.]+$/, ''),
+              src: info.thumburl,
+              url: `https://commons.wikimedia.org/wiki/${encodeURIComponent(page.title)}`,
+              source: '🔬 Wikimedia Commons'
+            });
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  // ── 3. Verified curated medical image map ───────────────────────────────
   const medicalImageMap = {
-    'heart': 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b9/Gray1220.png/280px-Gray1220.png',
-    'brain': 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0a/Brainmaps-En.png/280px-Brainmaps-En.png',
-    'lung': 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3b/Pulmonary_circulation.png/280px-Pulmonary_circulation.png',
-    'liver': 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/Liver_anatomical_position.PNG/280px-Liver_anatomical_position.PNG',
-    'kidney': 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Kidney_cross_section.svg/280px-Kidney_cross_section.svg.png',
-    'anatomy': 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0b/PositionalAnatomy.png/280px-PositionalAnatomy.png',
-    'bone': 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Skeleton_diagram.svg/200px-Skeleton_diagram.svg.png',
-    'muscle': 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/ce/Muscular_system.png/280px-Muscular_system.png',
-    'cell': 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6d/Cell_nucleus.svg/280px-Cell_nucleus.svg.png',
-    'neuron': 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/92/Neuron_diagram_en.svg/400px-Neuron_diagram_en.svg.png',
-    'dna': 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/71/DNA_structure_and_bases.svg/330px-DNA_structure_and_bases.svg.png',
-    'blood': 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a7/Camponotus_flavomarginatus_ant.jpg/320px-Camponotus_flavomarginatus_ant.jpg',
+    'heart': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/Heart_diagram-en.svg/400px-Heart_diagram-en.svg.png',
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Diagram_of_the_human_heart_%28cropped%29.svg/400px-Diagram_of_the_human_heart_%28cropped%29.svg.png'
+    ],
+    'brain': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Gray728.svg/400px-Gray728.svg.png',
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b0/Human_brain_NIH.jpg/400px-Human_brain_NIH.jpg'
+    ],
+    'lung': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a4/Illu_bronchi_lungs.jpg/400px-Illu_bronchi_lungs.jpg'
+    ],
+    'liver': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Liver_anterior.jpg/400px-Liver_anterior.jpg'
+    ],
+    'kidney': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Kidney_cross_section.jpg/400px-Kidney_cross_section.jpg'
+    ],
+    'bone': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/6/67/Human_skeleton_front_en.svg/250px-Human_skeleton_front_en.svg.png'
+    ],
+    'muscle': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d7/Muscular_system.png/280px-Muscular_system.png'
+    ],
+    'cell': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/4/48/Animal_cell_structure_en.svg/400px-Animal_cell_structure_en.svg.png'
+    ],
+    'neuron': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/9/92/Neuron_diagram_en.svg/400px-Neuron_diagram_en.svg.png'
+    ],
+    'dna': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/DNA_Structure%2BKey%2BLabelled.pn_NoBB.png/350px-DNA_Structure%2BKey%2BLabelled.pn_NoBB.png'
+    ],
+    'blood': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f7/Blut_Schematisch.png/400px-Blut_Schematisch.png'
+    ],
+    'spine': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f0/Gray_111_-_Vertebral_column.png/250px-Gray_111_-_Vertebral_column.png'
+    ],
+    'eye': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/Schematic_diagram_of_the_human_eye_en.svg/400px-Schematic_diagram_of_the_human_eye_en.svg.png'
+    ],
+    'ear': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d8/Anatomy_of_the_Human_Ear.svg/400px-Anatomy_of_the_Human_Ear.svg.png'
+    ],
+    'stomach': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/Stomach_diagram.svg/400px-Stomach_diagram.svg.png'
+    ],
+    'skin': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c6/Skin_layers.png/400px-Skin_layers.png'
+    ],
+    'immune': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8b/Immune_response.png/400px-Immune_response.png'
+    ],
+    'cancer': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/0/05/Cancer_requires_6_mutations.svg/400px-Cancer_requires_6_mutations.svg.png'
+    ],
+    'diabetes': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d8/Symptoms_of_diabetes.svg/400px-Symptoms_of_diabetes.svg.png'
+    ],
+    'virus': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/9/94/Coronavirus._SARS-CoV-2.png/400px-Coronavirus._SARS-CoV-2.png'
+    ],
+    'crispr': [
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/1/17/CRISPR-Cas9-biologist_perspective_cropped.png/400px-CRISPR-Cas9-biologist_perspective_cropped.png'
+    ]
   };
 
-  for (const [term, imageUrl] of Object.entries(medicalImageMap)) {
-    if (medicalTerms.includes(term) && diagrams.length < 5) {
-      diagrams.push({
-        title: term.charAt(0).toUpperCase() + term.slice(1),
-        src: imageUrl,
-        url: `https://en.wikipedia.org/wiki/${encodeURIComponent(term)}`,
-        source: '📚 Medical Reference'
-      });
+  for (const [term, urls] of Object.entries(medicalImageMap)) {
+    if (medicalTerms.includes(term)) {
+      for (const src of urls) {
+        addDiagram({
+          title: term.charAt(0).toUpperCase() + term.slice(1) + ' Diagram',
+          src,
+          url: `https://en.wikipedia.org/wiki/${encodeURIComponent(term)}`,
+          source: '📚 Medical Reference'
+        });
+      }
     }
   }
 
-  // 4. Fallback: Unsplash medical images
+  // ── 4. Fallback: reliable public medical images ──────────────────────────
   if (diagrams.length === 0) {
-    diagrams.push(
+    const fallbacks = [
       {
-        title: 'Medical Technology',
-        src: 'https://images.unsplash.com/photo-1576091160550-112173f7f869?w=600&h=400&fit=crop',
-        url: `https://medlineplus.gov/search/search_results.html?query=${encodeURIComponent(cleanQuery)}`,
-        source: '📚 MedlinePlus'
+        title: 'Medical Anatomy',
+        src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/78/Gray1090.png/320px-Gray1090.png',
+        source: '📚 Gray\'s Anatomy'
       },
       {
-        title: 'Medical Research',
-        src: 'https://images.unsplash.com/photo-1530026405289-c5c17675b8c4?w=600&h=400&fit=crop',
-        url: `https://www.ncbi.nlm.nih.gov/pmc/?term=${encodeURIComponent(cleanQuery)}`,
-        source: '📖 PubMed Central'
+        title: 'Human Body Systems',
+        src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8d/Illu_body_cavities.jpg/300px-Illu_body_cavities.jpg',
+        source: '📚 Medical Reference'
       },
       {
-        title: 'Health Education',
-        src: 'https://images.unsplash.com/photo-1487180144351-b8472da7d491?w=600&h=400&fit=crop',
-        url: `https://scholar.google.com/scholar?q=${encodeURIComponent(cleanQuery)}`,
-        source: '🎓 Google Scholar'
+        title: 'Medical Cells',
+        src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/48/Animal_cell_structure_en.svg/400px-Animal_cell_structure_en.svg.png',
+        source: '🔬 Biology Reference'
       }
-    );
+    ];
+    fallbacks.forEach(f => addDiagram({ ...f, url: `https://en.wikipedia.org/wiki/Medicine` }));
   }
 
   return diagrams.slice(0, 5);
