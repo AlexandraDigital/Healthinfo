@@ -336,6 +336,24 @@
 </div>
 
 <!-- Google Custom Search -->
+<!-- Google Custom Search Engine with proper initialization handler -->
+<script>
+  // Flag to track when CSE is ready
+  window.cseReady = false;
+  window.cseAttempts = 0;
+  window.cseMaxAttempts = 5;
+  
+  // Called when Google CSE is loaded
+  window.__gcse = {
+    callback: function() {
+      window.cseReady = true;
+      console.log('✅ Google Custom Search Engine loaded and ready!');
+      // Enable search button if it was disabled
+      const searchBtn = document.getElementById('googleSearchBtn');
+      if (searchBtn) searchBtn.disabled = false;
+    }
+  };
+</script>
 <script async src="https://cse.google.com/cse.js?cx=11668e4a73a384823"></script>
 
 <style>
@@ -526,26 +544,43 @@ function searchGoogle() {
   const gcseWrapper = document.getElementById('gcseWrapper');
   if (gcseWrapper) gcseWrapper.classList.add('visible');
   
-  // Execute Google Custom Search with proper error handling
-  try {
-    if (window.google && 
-        window.google.search && 
-        window.google.search.cse && 
-        window.google.search.cse.element &&
-        typeof window.google.search.cse.element.getElement === 'function') {
-      console.log('🔍 Searching Google CSE for:', text);
-      const element = window.google.search.cse.element.getElement(0);
-      if (element && typeof element.execute === 'function') {
-        element.execute(text);
-      } else {
-        console.warn('⚠️ CSE element not ready. Try again in a moment.');
+  // Helper function to execute search with retry logic
+  function executeSearch() {
+    try {
+      if (window.google && 
+          window.google.search && 
+          window.google.search.cse && 
+          window.google.search.cse.element &&
+          typeof window.google.search.cse.element.getElement === 'function') {
+        console.log('🔍 Searching Google CSE for:', text);
+        const element = window.google.search.cse.element.getElement(0);
+        if (element && typeof element.execute === 'function') {
+          element.execute(text);
+          window.cseAttempts = 0; // Reset counter on success
+          return true;
+        }
       }
-    } else {
-      console.warn('⚠️ Google Custom Search not loaded yet. Try again in a moment.');
+      return false;
+    } catch (e) {
+      console.error('❌ CSE search error:', e.message);
+      return false;
     }
-  } catch (e) {
-    console.error('❌ CSE search error:', e.message);
-    alert('Google Search temporarily unavailable. Try again in a moment.');
+  }
+  
+  // Try to execute search immediately
+  if (executeSearch()) {
+    return;
+  }
+  
+  // If CSE not ready, wait and retry up to 5 times
+  if (window.cseAttempts < window.cseMaxAttempts) {
+    window.cseAttempts++;
+    console.log(`⏳ CSE not ready yet (attempt ${window.cseAttempts}/${window.cseMaxAttempts}). Retrying in 300ms...`);
+    setTimeout(searchGoogle, 300);
+  } else {
+    console.error('❌ Google Custom Search failed to load. Please refresh the page.');
+    alert('Google Search is taking too long to load. Please refresh the page and try again.');
+    window.cseAttempts = 0;
   }
 }
 
