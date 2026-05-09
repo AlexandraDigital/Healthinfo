@@ -579,36 +579,85 @@ async function fetchMedicalSources(query) {
   return sources.slice(0, 5);
 }
 
-/* ============ RELEVANT MEDICAL IMAGES (GOOGLE SEARCH) ============ */
-function generateImageSearchLinks(query) {
+/* ============ FETCH OPENSTAX & MEDLINEPLUS DIAGRAMS ============ */
+async function fetchMedicalDiagrams(query) {
+  const diagrams = [];
   const cleanQuery = query.replace(/[?!.]/g, '').trim();
-  
-  return [
-    {
-      title: '🔍 Google Images - Medical Diagrams',
-      src: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"%3E%3Crect fill="%234285F4" width="100" height="100" rx="10"/%3E%3Ctext x="50" y="50" font-size="60" fill="white" text-anchor="middle" dominant-baseline="middle"%3EG%3C/text%3E%3C/svg%3E',
-      url: `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(cleanQuery + ' medical diagram')}&tbs=isz:lt,islt:qsvga`,
-      source: '🔍 Google Images'
-    },
-    {
-      title: '📚 Google Scholar Images - Research',
-      src: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"%3E%3Crect fill="%234D90FE" width="100" height="100" rx="10"/%3E%3Ctext x="50" y="50" font-size="50" fill="white" text-anchor="middle" dominant-baseline="middle"%3E🎓%3C/text%3E%3C/svg%3E',
-      url: `https://scholar.google.com/scholar?q=${encodeURIComponent(cleanQuery + ' medical illustrations')}&tbm=isch`,
-      source: '📚 Google Scholar'
-    },
-    {
-      title: '🏥 PubMed Images - Clinical Figures',
-      src: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"%3E%3Crect fill="%23009F4D" width="100" height="100" rx="10"/%3E%3Ctext x="50" y="50" font-size="50" fill="white" text-anchor="middle" dominant-baseline="middle"%3E+%3C/text%3E%3C/svg%3E',
-      url: `https://www.ncbi.nlm.nih.gov/pmc/?term=${encodeURIComponent(cleanQuery)} AND figures`,
-      source: '🏥 PubMed'
-    },
-    {
-      title: '🔬 Wikimedia Medical - Scientific',
-      src: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"%3E%3Crect fill="%23333333" width="100" height="100" rx="10"/%3E%3Ctext x="50" y="50" font-size="50" fill="white" text-anchor="middle" dominant-baseline="middle"%3E🔬%3C/text%3E%3C/svg%3E',
-      url: `https://commons.wikimedia.org/w/index.php?search=${encodeURIComponent(cleanQuery + ' medical')}&title=Special:MediaSearch&go=Go`,
-      source: '🔬 Wikimedia'
+
+  try {
+    // 1. Fetch from MedlinePlus Health Topics API (free, no auth required)
+    const medlineRes = await fetch(
+      `https://wsearch.nlm.nih.gov/ws/query?db=healthTopics&term=${encodeURIComponent(cleanQuery)}&rettype=json&tool=healthinfo`,
+      { headers: { Accept: 'application/json' } }
+    );
+    
+    if (medlineRes.ok) {
+      const medlineData = await medlineRes.json();
+      if (medlineData.result?.uids?.length) {
+        const topicId = medlineData.result.uids[0];
+        const topicRes = await fetch(
+          `https://wsearch.nlm.nih.gov/ws/query?db=healthTopics&id=${topicId}&rettype=json&tool=healthinfo`
+        );
+        const topicData = await topicRes.json();
+        
+        if (topicData.result?.[topicId]?.document) {
+          const doc = topicData.result[topicId].document[0];
+          diagrams.push({
+            title: doc.title || cleanQuery,
+            src: 'https://www.nlm.nih.gov/images/nihlogo.png', // MedlinePlus branding
+            url: doc.uri || `https://medlineplus.gov/ency/article/${topicId}.htm`,
+            source: '📚 MedlinePlus (NIH)'
+          });
+        }
+      }
     }
-  ];
+  } catch (e) {
+    console.log('MedlinePlus fetch failed:', e.message);
+  }
+
+  try {
+    // 2. Fetch from OpenStax Books (free educational diagrams)
+    const openstaxRes = await fetch(
+      `https://api.openstax.org/v2/search?q=${encodeURIComponent(cleanQuery)}&limit=3`,
+      { headers: { Accept: 'application/json' } }
+    );
+    
+    if (openstaxRes.ok) {
+      const openstaxData = await openstaxRes.json();
+      if (openstaxData.results?.length) {
+        openstaxData.results.slice(0, 2).forEach(book => {
+          diagrams.push({
+            title: book.title,
+            src: book.cover_url || 'https://openstax.org/assets/og-image.png',
+            url: `https://openstax.org/details/books/${book.slug}`,
+            source: '📖 OpenStax'
+          });
+        });
+      }
+    }
+  } catch (e) {
+    console.log('OpenStax fetch failed:', e.message);
+  }
+
+  // 3. If no diagrams found, provide fallback links to search resources
+  if (diagrams.length === 0) {
+    diagrams.push(
+      {
+        title: 'Search Google Images for Diagrams',
+        src: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"%3E%3Crect fill="%234285F4" width="100" height="100" rx="10"/%3E%3Ctext x="50" y="50" font-size="50" fill="white" text-anchor="middle" dominant-baseline="middle"%3E🔍%3C/text%3E%3C/svg%3E',
+        url: `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(cleanQuery + ' medical diagram')}`,
+        source: '🔍 Google Images'
+      },
+      {
+        title: 'View on MedlinePlus',
+        src: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"%3E%3Crect fill="%23009F4D" width="100" height="100" rx="10"/%3E%3Ctext x="50" y="50" font-size="40" fill="white" text-anchor="middle" dominant-baseline="middle"%3E📚%3C/text%3E%3C/svg%3E',
+        url: `https://medlineplus.gov/search/search_results.html?query=${encodeURIComponent(cleanQuery)}`,
+        source: '📚 MedlinePlus'
+      }
+    );
+  }
+
+  return diagrams.slice(0, 4);
 }
 
 function buildSources(sources, images) {
@@ -686,16 +735,16 @@ async function submitQuestion(question, displayText, searchQuery) {
   const { content, bubble } = addAiShell();
 
   try {
-    const [reply, sources] = await Promise.all([
+    const [reply, sources, images] = await Promise.all([
       callGroq(question),
       fetchMedicalSources(searchQuery || question),
+      fetchMedicalDiagrams(searchQuery || question),
     ]);
 
     bubble.classList.remove('loading');
     bubble.innerHTML = fmt(reply);
     history.push({ role:'assistant', content: reply });
 
-    const images = generateImageSearchLinks(searchQuery || question);
     const srcBlock = buildSources(sources, images);
     if (srcBlock) content.appendChild(srcBlock);
 
