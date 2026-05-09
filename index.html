@@ -334,7 +334,34 @@
 
 <!-- Google Custom Search -->
 <script async src="https://cse.google.com/cse.js?cx=11668e4a73a384823"></script>
-<div class="gcse-searchresults-only"></div>
+
+<style>
+  .gcse-wrapper { 
+    padding: 16px 28px; 
+    border-top: 1px solid var(--border); 
+    background: rgba(6,11,20,0.8); 
+    backdrop-filter: blur(12px);
+    display: none;
+  }
+  .gcse-wrapper.visible { display: block; }
+  .gcse-searchbox-only { margin-bottom: 12px; }
+  .gcse-searchresults-only { 
+    max-height: 400px; 
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .gcse-searchresults-only::-webkit-scrollbar { width: 4px; }
+  .gcse-searchresults-only::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .cse .gsc-control-cse { background: transparent !important; border: none !important; }
+  .cse { font-family: 'Inter', sans-serif; }
+  .gsc-adBlock { display: none; }
+</style>
+
+<div class="gcse-wrapper" id="gcseWrapper">
+  <div class="gcse-searchbox-only"></div>
+  <div class="gcse-searchresults-only"></div>
+</div>
 
 <script>
 /* ============ STATE ============ */
@@ -428,9 +455,15 @@ QUICK.forEach(q => {
 function showChat() {
   document.getElementById('welcome').style.display = 'none';
   document.getElementById('chatWrap').classList.add('visible');
+  document.getElementById('gcseWrapper').classList.add('visible');
   const geminiInput = document.getElementById('geminiKeyInput');
   if (geminiInput && geminiInput.value.trim()) {
     localStorage.setItem('geminiKey', geminiInput.value.trim());
+  }
+  
+  // Load/render Google Custom Search if not already loaded
+  if (window.google && window.google.search && window.google.search.cse) {
+    window.google.search.cse.element.render();
   }
 }
 
@@ -442,6 +475,7 @@ function clearChat() {
   document.getElementById('topbarSub').textContent = 'Select a topic or ask anything';
   document.getElementById('welcome').style.display = 'flex';
   document.getElementById('chatWrap').classList.remove('visible');
+  document.getElementById('gcseWrapper').classList.remove('visible');
 }
 
 function selectTopic(i, el) {
@@ -767,6 +801,15 @@ async function submitQuestion(question, displayText, searchQuery) {
     if (srcBlock) content.appendChild(srcBlock);
     
     console.log('✅ Response complete');
+    
+    // Automatically search Google Custom Search with the same query
+    setTimeout(() => {
+      if (window.google && window.google.search && window.google.search.cse && window.google.search.cse.element) {
+        const searchTerm = searchQuery || question;
+        console.log('🔍 Triggering Google Custom Search for:', searchTerm);
+        window.google.search.cse.element.getElement(0).execute(searchTerm);
+      }
+    }, 500);
 
   } catch (e) {
     bubble.classList.remove('loading');
