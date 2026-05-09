@@ -1,8 +1,0 @@
-{
-  "name": "healthinfo",
-  "version": "1.0.0",
-  "description": "Health info app",
-  "scripts": {
-    "build": "node build.js"
-  }
-}
