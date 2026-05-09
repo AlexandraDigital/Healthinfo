@@ -70,16 +70,31 @@ export async function onRequest(context) {
       });
     }
 
-    const images = items.map(item => ({
-      type: 'image',
-      src: item.link,
-      thumbnail: item.image?.thumbnailLink || item.link,
-      title: item.title,
-      source: item.displayLink,
-      contextLink: item.image?.contextLink || item.link,
-      width: item.image?.width,
-      height: item.image?.height
-    }));
+    const images = items.map(item => {
+      // FIXED: Extract domain from contextLink for better source attribution
+      // displayLink is just the domain name, but we want the full source URL for proper credit
+      let source = item.displayLink;
+      if (item.image?.contextLink) {
+        try {
+          const contextUrl = new URL(item.image.contextLink);
+          source = contextUrl.hostname || item.displayLink;
+        } catch (e) {
+          // Fall back to displayLink if URL parsing fails
+          source = item.displayLink;
+        }
+      }
+      
+      return {
+        type: 'image',
+        src: item.link,
+        thumbnail: item.image?.thumbnailLink || item.link,
+        title: item.title,
+        source: source,
+        contextLink: item.image?.contextLink || item.link,
+        width: item.image?.width,
+        height: item.image?.height
+      };
+    });
 
     return new Response(JSON.stringify({ images }), {
       status: 200,

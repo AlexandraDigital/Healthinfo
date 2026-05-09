@@ -249,7 +249,7 @@
   <div class="modal-box">
     <div class="modal-icon">⚡</div>
     <h2>MedIQ Configuration</h2>
-    <p>MedIQ is configured to use <strong>Groq</strong> for ultra-fast AI responses and <strong>Gemini</strong> for generating medical diagrams. Both APIs are accessed securely via Cloudflare Pages Functions — your API keys are never exposed to the browser.</p>
+    <p>MedIQ is configured to use <strong>Groq</strong> for ultra-fast AI responses and <strong>Google Custom Search API</strong> for finding medical diagrams. Both APIs are accessed securely via Cloudflare Pages Functions — your API keys are never exposed to the browser.</p>
 
     <div style="text-align:left;margin-bottom:10px;font-size:12px;color:var(--text3);">Choose model</div>
     <div class="model-row" id="modelRow">
@@ -586,8 +586,8 @@ async function fetchMedicalDiagrams(query) {
   
   if (cleanQuery.length > 0) {
     try {
-      // Call Cloudflare Pages Function for Gemini diagram generation
-      // The function uses env.GEMINI_API_KEY, so the key is never exposed to the browser
+      // Call Cloudflare Pages Function for Google Custom Search API
+      // The function uses env.GOOGLE_API_KEY and env.GOOGLE_SEARCH_CX, so the keys are never exposed to the browser
       console.log('📡 Calling /api/generate-diagram...');
       
       const response = await fetch('/api/generate-diagram', {
@@ -611,6 +611,7 @@ async function fetchMedicalDiagrams(query) {
       } else {
         const error = await response.json().catch(() => ({ error: 'Failed to parse error response' }));
         console.error('❌ API Error Response:', error);
+        return diagrams; // FIXED: Early return on API error to prevent processing failure
       }
     } catch (e) {
       console.error('💥 Network/Fetch Error:', e.message, e.stack);
@@ -640,61 +641,49 @@ function buildSources(sources, images) {
     images.forEach((img, idx) => {
       console.log(`Processing image ${idx}:`, img.type);
       
-      if (img.type === 'svg') {
-        // Render SVG diagram directly
-        const svgWrapper = document.createElement('div');
-        svgWrapper.style.cssText = `
-          background: var(--card); 
-          border: 1px solid var(--border); 
-          border-radius: 12px; 
-          padding: 16px; 
-          margin-bottom: 16px; 
-          width: 100%;
+      // FIXED: Removed dead SVG rendering code. API only returns type: 'image' (img.type is never 'svg')
+      // and provides img.src (not img.content), so the SVG block will never execute anyway.
+      
+      // Render regular image
+      const imgCard = document.createElement('div');
+      imgCard.className = 'image-card';
+      
+      // Create image with better error handling
+      const imgEl = document.createElement('img');
+      imgEl.src = img.src;
+      imgEl.alt = img.title;
+      imgEl.loading = 'lazy';
+      imgEl.onerror = function() { 
+        console.warn('Image failed to load:', img.src);
+        this.style.display = 'none'; 
+        this.parentElement.style.opacity = '0.5';
+      };
+      
+      const source = document.createElement('div');
+      source.className = 'image-source';
+      source.textContent = img.source;
+      
+      imgCard.appendChild(imgEl);
+      imgCard.appendChild(source);
+      imgCard.style.cursor = 'pointer';
+      imgCard.onclick = () => {
+        // Open in new tab or display enlarged
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+          position: fixed; inset: 0; background: rgba(0,0,0,0.9); 
+          display: flex; align-items: center; justify-content: center; 
+          z-index: 999; cursor: pointer;
         `;
-        svgWrapper.innerHTML = img.content;
-        imgGallery.appendChild(svgWrapper);
-        console.log('✅ SVG rendered');
-      } else {
-        // Render regular image
-        const imgCard = document.createElement('div');
-        imgCard.className = 'image-card';
-        
-        // Create image with better error handling
-        const imgEl = document.createElement('img');
-        imgEl.src = img.src;
-        imgEl.alt = img.title;
-        imgEl.loading = 'lazy';
-        imgEl.onerror = function() { 
-          console.warn('Image failed to load:', img.src);
-          this.style.display = 'none'; 
-          this.parentElement.style.opacity = '0.5';
-        };
-        
-        const source = document.createElement('div');
-        source.className = 'image-source';
-        source.textContent = img.source;
-        
-        imgCard.appendChild(imgEl);
-        imgCard.appendChild(source);
-        imgCard.style.cursor = 'pointer';
-        imgCard.onclick = () => {
-          // Open in new tab or display enlarged
-          const modal = document.createElement('div');
-          modal.style.cssText = `
-            position: fixed; inset: 0; background: rgba(0,0,0,0.9); 
-            display: flex; align-items: center; justify-content: center; 
-            z-index: 999; cursor: pointer;
-          `;
-          const largeImg = document.createElement('img');
-          largeImg.src = img.src;
-          largeImg.style.cssText = `max-width: 90%; max-height: 90%; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.5);`;
-          modal.appendChild(largeImg);
-          modal.onclick = () => modal.remove();
-          document.body.appendChild(modal);
-        };
-        imgGallery.appendChild(imgCard);
-        console.log('✅ Regular image rendered');
-      }
+        const largeImg = document.createElement('img');
+        largeImg.src = img.src;
+        largeImg.style.cssText = `max-width: 90%; max-height: 90%; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.5);`;
+        modal.appendChild(largeImg);
+        modal.onclick = () => modal.remove();
+        document.body.appendChild(modal);
+      };
+      imgGallery.appendChild(imgCard);
+      console.log('✅ Image rendered');
+    });
     });
     wrap.appendChild(imgGallery);
   } else {
