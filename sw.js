@@ -16,6 +16,19 @@ self.addEventListener('install', event => {
 
 // Fetch event
 self.addEventListener('fetch', event => {
+  const url = new URL(event.request.url);
+  
+  // IMPORTANT: Skip caching for API calls - let them go directly to network
+  if (url.pathname.startsWith('/api/')) {
+    return event.respondWith(
+      fetch(event.request).catch(error => {
+        console.error('API request failed:', error);
+        throw error;
+      })
+    );
+  }
+  
+  // Cache-first strategy for static assets (GET only)
   if (event.request.method !== 'GET') return;
   
   event.respondWith(
