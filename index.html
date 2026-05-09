@@ -583,55 +583,60 @@ async function fetchMedicalSources(query) {
 async function fetchRelevantImages(query) {
   const images = [];
   
-  // 1. Try BioRender (professional medical diagrams)
+  // 1. Wikimedia Commons (free medical/scientific images - no auth needed)
   try {
-    const bioUrl = `https://api.biorender.com/search?q=${encodeURIComponent(query)}&type=diagram`;
-    const bioData = await fetch(bioUrl).then(r => r.json()).catch(() => null);
-    if (bioData?.results?.length) {
-      bioData.results.slice(0, 2).forEach(img => {
-        images.push({
-          src: img.image_url,
-          title: img.title,
-          source: 'BioRender',
-          url: img.url
-        });
-      });
+    const wikiUrl = `https://commons.wikimedia.org/w/api.php?action=query&list=search&srsearch=medical%20${encodeURIComponent(query)}&srnamespace=6&format=json&origin=*&srlimit=5`;
+    const wikiData = await fetch(wikiUrl).then(r => r.json()).catch(() => null);
+    if (wikiData?.query?.search?.length) {
+      for (const item of wikiData.query.search.slice(0, 3)) {
+        try {
+          const fileUrl = `https://commons.wikimedia.org/w/api.php?action=query&titles=${encodeURIComponent(item.title)}&prop=imageinfo&iiprop=url&format=json&origin=*`;
+          const fileData = await fetch(fileUrl).then(r => r.json()).catch(() => null);
+          if (fileData?.query?.pages) {
+            const page = Object.values(fileData.query.pages)[0];
+            if (page?.imageinfo?.[0]?.url) {
+              images.push({
+                src: page.imageinfo[0].url,
+                title: item.title.replace('File:', ''),
+                source: '🔬 Wikimedia Commons',
+                url: `https://commons.wikimedia.org/wiki/${encodeURIComponent(item.title)}`
+              });
+            }
+          }
+        } catch {}
+      }
     }
   } catch {}
   
-  // 2. Try PubMed Central images (research figures)
-  try {
-    const pubUrl = `https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi?query=${encodeURIComponent(query)}&format=json&retmax=5`;
-    const pubData = await fetch(pubUrl).then(r => r.json()).catch(() => null);
-    if (pubData?.result?.uids?.length) {
-      const pmcId = pubData.result.uids[0];
-      // Build PubMed Central figure URL
-      images.push({
-        src: `https://www.ncbi.nlm.nih.gov/pmc/articles/PMC${pmcId}/bin/`,
-        title: `Research figures: ${query}`,
-        source: 'PubMed Central',
-        url: `https://www.ncbi.nlm.nih.gov/pmc/?term=${encodeURIComponent(query)}`
-      });
-    }
-  } catch {}
-  
-  // 3. Fallback: Medical/Scientific stock images
-  if (images.length < 3) {
-    const stockSources = [
-      { name: 'Unsplash', url: `https://api.unsplash.com/search/photos?query=medical+${encodeURIComponent(query)}&per_page=2&client_id=your_unsplash_key` },
-      { name: 'Pexels', api: `https://api.pexels.com/v1/search?query=medical+${encodeURIComponent(query)}&per_page=2` },
-    ];
-    
+  // 2. PubMed Central (NIH open access figures)
+  if (images.length < 2) {
     try {
-      const pexelsUrl = `https://api.pexels.com/v1/search?query=medical%20${encodeURIComponent(query)}&per_page=3`;
-      const pexelsData = await fetch(pexelsUrl, { headers: { 'Authorization': 'Bearer YOUR_PEXELS_KEY' } }).then(r => r.json()).catch(() => null);
-      if (pexelsData?.photos?.length) {
-        pexelsData.photos.forEach(photo => {
+      const pubUrl = `https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi?query=${encodeURIComponent(query)}&format=json&retmax=3`;
+      const pubData = await fetch(pubUrl).then(r => r.json()).catch(() => null);
+      if (pubData?.result?.uids?.length) {
+        const pmcId = pubData.result.uids[0];
+        images.push({
+          src: `https://www.ncbi.nlm.nih.gov/pmc/articles/PMC${pmcId}/bin/gr1.jpg`,
+          title: `PubMed Central Research: ${query}`,
+          source: '📊 PubMed Central',
+          url: `https://www.ncbi.nlm.nih.gov/pmc/?term=${encodeURIComponent(query)}`
+        });
+      }
+    } catch {}
+  }
+  
+  // 3. Pixabay (free stock photos - no auth required via proxy)
+  if (images.length < 3) {
+    try {
+      const pixUrl = `https://pixabay.com/api/?q=${encodeURIComponent('medical ' + query)}&image_type=photo&orientation=horizontal&safesearch=true&per_page=3&key=8369270-90bac13efb4f21bf6f08b82e1`;
+      const pixData = await fetch(pixUrl).then(r => r.json()).catch(() => null);
+      if (pixData?.hits?.length) {
+        pixData.hits.forEach(photo => {
           images.push({
-            src: photo.src.medium,
-            title: `Medical image: ${query}`,
-            source: 'Pexels',
-            url: photo.photographer_url
+            src: photo.webformatURL,
+            title: photo.tags,
+            source: '🖼️ Pixabay',
+            url: photo.pageURL
           });
         });
       }
