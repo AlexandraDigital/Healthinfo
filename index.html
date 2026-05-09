@@ -204,7 +204,12 @@
   .source-excerpt { font-size: 12px; color: var(--text2); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .source-domain { font-size: 10px; color: var(--text3); margin-top: 4px; }
 
-
+  /* === IMAGES === */
+  .images-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .image-card { position: relative; width: 140px; height: 140px; border-radius: 10px; overflow: hidden; background: var(--bg3); border: 1px solid var(--border); cursor: pointer; transition: border-color 0.15s, transform 0.15s; flex-shrink: 0; }
+  .image-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .image-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .image-source { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(transparent, rgba(0,0,0,0.7)); color: #fff; font-size: 10px; padding: 6px 8px; text-align: right; }
 
   /* === INPUT === */
   .input-area { padding: 14px 28px 18px; border-top: 1px solid var(--border); background: rgba(6,11,20,0.8); backdrop-filter: blur(12px); }
@@ -574,26 +579,111 @@ async function fetchMedicalSources(query) {
   return sources.slice(0, 5);
 }
 
-function buildSources(sources) {
-  if (!sources.length) return null;
+/* ============ RELEVANT MEDICAL IMAGES ============ */
+async function fetchRelevantImages(query) {
+  const images = [];
+  
+  // 1. Try BioRender (professional medical diagrams)
+  try {
+    const bioUrl = `https://api.biorender.com/search?q=${encodeURIComponent(query)}&type=diagram`;
+    const bioData = await fetch(bioUrl).then(r => r.json()).catch(() => null);
+    if (bioData?.results?.length) {
+      bioData.results.slice(0, 2).forEach(img => {
+        images.push({
+          src: img.image_url,
+          title: img.title,
+          source: 'BioRender',
+          url: img.url
+        });
+      });
+    }
+  } catch {}
+  
+  // 2. Try PubMed Central images (research figures)
+  try {
+    const pubUrl = `https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi?query=${encodeURIComponent(query)}&format=json&retmax=5`;
+    const pubData = await fetch(pubUrl).then(r => r.json()).catch(() => null);
+    if (pubData?.result?.uids?.length) {
+      const pmcId = pubData.result.uids[0];
+      // Build PubMed Central figure URL
+      images.push({
+        src: `https://www.ncbi.nlm.nih.gov/pmc/articles/PMC${pmcId}/bin/`,
+        title: `Research figures: ${query}`,
+        source: 'PubMed Central',
+        url: `https://www.ncbi.nlm.nih.gov/pmc/?term=${encodeURIComponent(query)}`
+      });
+    }
+  } catch {}
+  
+  // 3. Fallback: Medical/Scientific stock images
+  if (images.length < 3) {
+    const stockSources = [
+      { name: 'Unsplash', url: `https://api.unsplash.com/search/photos?query=medical+${encodeURIComponent(query)}&per_page=2&client_id=your_unsplash_key` },
+      { name: 'Pexels', api: `https://api.pexels.com/v1/search?query=medical+${encodeURIComponent(query)}&per_page=2` },
+    ];
+    
+    try {
+      const pexelsUrl = `https://api.pexels.com/v1/search?query=medical%20${encodeURIComponent(query)}&per_page=3`;
+      const pexelsData = await fetch(pexelsUrl, { headers: { 'Authorization': 'Bearer YOUR_PEXELS_KEY' } }).then(r => r.json()).catch(() => null);
+      if (pexelsData?.photos?.length) {
+        pexelsData.photos.forEach(photo => {
+          images.push({
+            src: photo.src.medium,
+            title: `Medical image: ${query}`,
+            source: 'Pexels',
+            url: photo.photographer_url
+          });
+        });
+      }
+    } catch {}
+  }
+  
+  return images.slice(0, 4); // Max 4 images
+}
+
+function buildSources(sources, images) {
   const wrap = document.createElement('div');
   wrap.className = 'sources-block';
 
-  const lbl = document.createElement('div');
-  lbl.className = 'sources-label';
-  lbl.textContent = 'Legitimate Medical Sources';
-  wrap.appendChild(lbl);
+  // Show images if available
+  if (images?.length) {
+    const imgLbl = document.createElement('div');
+    imgLbl.className = 'sources-label';
+    imgLbl.textContent = 'Relevant Medical Images';
+    wrap.appendChild(imgLbl);
+    
+    const imgRow = document.createElement('div');
+    imgRow.className = 'images-row';
+    images.forEach(img => {
+      const imgCard = document.createElement('div');
+      imgCard.className = 'image-card';
+      imgCard.innerHTML = `<img src="${esc(img.src)}" alt="${esc(img.title)}" loading="lazy" /><div class="image-source">${esc(img.source)}</div>`;
+      imgCard.style.cursor = 'pointer';
+      imgCard.onclick = () => window.open(img.url, '_blank', 'noopener');
+      imgRow.appendChild(imgCard);
+    });
+    wrap.appendChild(imgRow);
+  }
+
+  // Show sources
+  if (sources?.length) {
+    const srcLbl = document.createElement('div');
+    srcLbl.className = 'sources-label';
+    srcLbl.textContent = 'Legitimate Medical Sources';
+    wrap.appendChild(srcLbl);
+    
+    const cards = document.createElement('div');
+    cards.className = 'source-cards';
+    sources.forEach(s => {
+      const card = document.createElement('div');
+      card.className = 'source-card';
+      card.onclick = () => window.open(s.url, '_blank', 'noopener');
+      card.innerHTML = `<div class="source-thumb-placeholder">${s.domain.split(' ')[0]}</div><div class="source-info"><div class="source-title">${esc(s.title)}</div><div class="source-excerpt">${esc(s.excerpt)}</div><div class="source-domain">${esc(s.domain)}</div></div>`;
+      cards.appendChild(card);
+    });
+    wrap.appendChild(cards);
+  }
   
-  const cards = document.createElement('div');
-  cards.className = 'source-cards';
-  sources.forEach(s => {
-    const card = document.createElement('div');
-    card.className = 'source-card';
-    card.onclick = () => window.open(s.url, '_blank', 'noopener');
-    card.innerHTML = `<div class="source-thumb-placeholder">${s.domain.split(' ')[0]}</div><div class="source-info"><div class="source-title">${esc(s.title)}</div><div class="source-excerpt">${esc(s.excerpt)}</div><div class="source-domain">${esc(s.domain)}</div></div>`;
-    cards.appendChild(card);
-  });
-  wrap.appendChild(cards);
   return wrap;
 }
 
@@ -626,16 +716,17 @@ async function submitQuestion(question, displayText, searchQuery) {
   const { content, bubble } = addAiShell();
 
   try {
-    const [reply, sources] = await Promise.all([
+    const [reply, sources, images] = await Promise.all([
       callGroq(question),
       fetchMedicalSources(searchQuery || question),
+      fetchRelevantImages(searchQuery || question),
     ]);
 
     bubble.classList.remove('loading');
     bubble.innerHTML = fmt(reply);
     history.push({ role:'assistant', content: reply });
 
-    const srcBlock = buildSources(sources);
+    const srcBlock = buildSources(sources, images);
     if (srcBlock) content.appendChild(srcBlock);
 
   } catch (e) {
