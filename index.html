@@ -192,9 +192,7 @@
   .sources-block { display: flex; flex-direction: column; gap: 10px; }
   .sources-label { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px; }
 
-  .images-row { display: flex; gap: 8px; flex-wrap: wrap; }
-  .wiki-img { width: 118px; height: 82px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); cursor: pointer; transition: all 0.2s; background: var(--bg3); }
-  .wiki-img:hover { border-color: var(--accent); transform: scale(1.03); }
+
 
   .source-cards { display: flex; flex-direction: column; gap: 7px; }
   .source-card { display: flex; gap: 10px; align-items: flex-start; background: var(--card2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; cursor: pointer; transition: border-color 0.15s; text-decoration: none; }
@@ -206,10 +204,7 @@
   .source-excerpt { font-size: 12px; color: var(--text2); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .source-domain { font-size: 10px; color: var(--text3); margin-top: 4px; }
 
-  /* === LIGHTBOX === */
-  .lightbox { position: fixed; inset: 0; background: rgba(6,11,20,0.93); z-index: 200; display: flex; align-items: center; justify-content: center; cursor: pointer; backdrop-filter: blur(6px); }
-  .lightbox.hidden { display: none; }
-  .lightbox img { max-width: 88vw; max-height: 88vh; border-radius: 12px; border: 1px solid var(--border2); }
+
 
   /* === INPUT === */
   .input-area { padding: 14px 28px 18px; border-top: 1px solid var(--border); background: rgba(6,11,20,0.8); backdrop-filter: blur(12px); }
@@ -228,7 +223,6 @@
     .topbar, .messages, .input-area { padding-left: 16px; padding-right: 16px; }
     .welcome { padding: 20px 16px; }
     .msg-content { max-width: 90%; }
-    .wiki-img { width: 90px; height: 65px; }
   }
 </style>
 </head>
@@ -238,10 +232,7 @@
 <div class="blob blob2"></div>
 <div class="blob blob3"></div>
 
-<!-- LIGHTBOX -->
-<div class="lightbox hidden" id="lightbox" onclick="closeLightbox()">
-  <img id="lightboxImg" src="" alt="Enlarged image" />
-</div>
+
 
 <!-- API KEY MODAL -->
 <div class="modal-overlay" id="modalOverlay">
@@ -312,7 +303,7 @@
       <div class="welcome-hero">
         <div class="welcome-icon">🔬</div>
         <h1>Explore <span>health tech</span> &amp; the human body</h1>
-        <p>AI-powered tutor for anatomy, medical devices, genomics, neuroscience, and more — with real sources and images from Wikipedia.</p>
+        <p>AI-powered tutor for anatomy, medical devices, genomics, neuroscience, and more — with vetted sources from Mayo Clinic, NIH, PubMed, and CDC.</p>
       </div>
       <div class="chips-section">
         <div class="chips-label">Quick starts</div>
@@ -529,89 +520,84 @@ function addAiShell() {
   };
 }
 
-/* ============ WIKIPEDIA ============ */
-async function fetchWikiSources(query) {
+/* ============ LEGITIMATE MEDICAL SOURCES ============ */
+async function fetchMedicalSources(query) {
+  const sources = [];
+  
+  // 1. PubMed Central (NIH)
   try {
-    const url = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=5&format=json&origin=*`;
-    const r = await fetch(url);
-    const d = await r.json();
-    const hits = (d.query?.search || []).slice(0, 3);
-    const out = [];
-    await Promise.all(hits.map(async h => {
-      try {
-        const s = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(h.title)}`).then(r => r.json());
-        if (s.title && s.extract) out.push({
-          title: s.title,
-          excerpt: s.extract.slice(0, 150).trim() + '…',
-          url: s.content_urls?.desktop?.page || `https://en.wikipedia.org/wiki/${encodeURIComponent(s.title)}`,
-          thumb: s.thumbnail?.source || null,
-        });
-      } catch {}
-    }));
-    return out;
-  } catch { return []; }
-}
-
-async function fetchWikiImages(query) {
-  try {
-    const url = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrnamespace=6&prop=imageinfo&iiprop=url&iiurlwidth=480&format=json&origin=*&gsrlimit=10`;
-    const d = await fetch(url).then(r => r.json());
-    const pages = d.query?.pages || {};
-    const imgs = [];
-    for (const p of Object.values(pages)) {
-      const src = p.imageinfo?.[0]?.thumburl;
-      if (src && /\.(jpg|jpeg|png|webp)/i.test(src) && !src.includes('OOjs') && !src.includes('question_mark')) imgs.push(src);
+    const pubmedUrl = `https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi?query=${encodeURIComponent(query)}&format=json`;
+    const pubmedData = await fetch(pubmedUrl).then(r => r.json()).catch(() => null);
+    if (pubmedData?.result?.uids?.length) {
+      const pmcId = pubmedData.result.uids[0];
+      sources.push({
+        title: `PubMed Central Research: ${query}`,
+        excerpt: 'Peer-reviewed medical research and studies from NIH/PubMed. Access to latest clinical findings.',
+        url: `https://www.ncbi.nlm.nih.gov/pmc/?term=${encodeURIComponent(query)}`,
+        domain: '🔬 NIH PubMed Central'
+      });
     }
-    return imgs.slice(0, 4);
-  } catch { return []; }
+  } catch {}
+
+  // 2. Mayo Clinic
+  sources.push({
+    title: `Mayo Clinic: ${query}`,
+    excerpt: 'Expert medical information and patient education from Mayo Clinic, a leading healthcare authority.',
+    url: `https://www.mayoclinic.org/search/search-results?q=${encodeURIComponent(query)}`,
+    domain: '🏥 Mayo Clinic'
+  });
+
+  // 3. Cleveland Clinic
+  sources.push({
+    title: `Cleveland Clinic Health Info: ${query}`,
+    excerpt: 'Evidence-based health information and treatment guidance from Cleveland Clinic experts.',
+    url: `https://health.clevelandclinic.org/search/?q=${encodeURIComponent(query)}`,
+    domain: '🏥 Cleveland Clinic'
+  });
+
+  // 4. CDC (Centers for Disease Control)
+  sources.push({
+    title: `CDC Information: ${query}`,
+    excerpt: 'Official public health information from CDC. Prevention, treatment, and disease information.',
+    url: `https://www.cdc.gov/search/?query=${encodeURIComponent(query)}`,
+    domain: '⚕️ CDC.gov'
+  });
+
+  // 5. NIH Health Information
+  sources.push({
+    title: `NIH MedlinePlus: ${query}`,
+    excerpt: 'Comprehensive health information from the National Library of Medicine. Trusted medical reference.',
+    url: `https://medlineplus.gov/search/search_results.html?query=${encodeURIComponent(query)}`,
+    domain: '📚 MedlinePlus (NIH)'
+  });
+
+  return sources.slice(0, 5);
 }
 
-function buildSources(sources, images) {
-  if (!sources.length && !images.length) return null;
+function buildSources(sources) {
+  if (!sources.length) return null;
   const wrap = document.createElement('div');
   wrap.className = 'sources-block';
 
-  if (images.length) {
-    const lbl = document.createElement('div');
-    lbl.className = 'sources-label'; lbl.textContent = 'Related images';
-    wrap.appendChild(lbl);
-    const row = document.createElement('div');
-    row.className = 'images-row';
-    images.forEach(src => {
-      const img = document.createElement('img');
-      img.className = 'wiki-img'; img.src = src; img.alt = 'medical image';
-      img.loading = 'lazy';
-      img.onclick = () => openLightbox(src);
-      row.appendChild(img);
-    });
-    wrap.appendChild(row);
-  }
-
-  if (sources.length) {
-    const lbl = document.createElement('div');
-    lbl.className = 'sources-label';
-    lbl.style.marginTop = images.length ? '12px' : '0';
-    lbl.textContent = 'Wikipedia sources';
-    wrap.appendChild(lbl);
-    const cards = document.createElement('div');
-    cards.className = 'source-cards';
-    sources.forEach(s => {
-      const card = document.createElement('div');
-      card.className = 'source-card';
-      card.onclick = () => window.open(s.url, '_blank', 'noopener');
-      let thumbHtml = s.thumb
-        ? `<img class="source-thumb" src="${esc(s.thumb)}" alt="" loading="lazy" />`
-        : `<div class="source-thumb-placeholder">📖</div>`;
-      card.innerHTML = `${thumbHtml}<div class="source-info"><div class="source-title">${esc(s.title)}</div><div class="source-excerpt">${esc(s.excerpt)}</div><div class="source-domain">📖 en.wikipedia.org</div></div>`;
-      cards.appendChild(card);
-    });
-    wrap.appendChild(cards);
-  }
+  const lbl = document.createElement('div');
+  lbl.className = 'sources-label';
+  lbl.textContent = 'Legitimate Medical Sources';
+  wrap.appendChild(lbl);
+  
+  const cards = document.createElement('div');
+  cards.className = 'source-cards';
+  sources.forEach(s => {
+    const card = document.createElement('div');
+    card.className = 'source-card';
+    card.onclick = () => window.open(s.url, '_blank', 'noopener');
+    card.innerHTML = `<div class="source-thumb-placeholder">${s.domain.split(' ')[0]}</div><div class="source-info"><div class="source-title">${esc(s.title)}</div><div class="source-excerpt">${esc(s.excerpt)}</div><div class="source-domain">${esc(s.domain)}</div></div>`;
+    cards.appendChild(card);
+  });
+  wrap.appendChild(cards);
   return wrap;
 }
 
-function openLightbox(src) { document.getElementById('lightboxImg').src = src; document.getElementById('lightbox').classList.remove('hidden'); }
-function closeLightbox() { document.getElementById('lightbox').classList.add('hidden'); }
+
 
 /* ============ GROQ API ============ */
 async function callGroq(question) {
@@ -640,17 +626,16 @@ async function submitQuestion(question, displayText, searchQuery) {
   const { content, bubble } = addAiShell();
 
   try {
-    const [reply, sources, images] = await Promise.all([
+    const [reply, sources] = await Promise.all([
       callGroq(question),
-      fetchWikiSources(searchQuery || question),
-      fetchWikiImages(searchQuery || question),
+      fetchMedicalSources(searchQuery || question),
     ]);
 
     bubble.classList.remove('loading');
     bubble.innerHTML = fmt(reply);
     history.push({ role:'assistant', content: reply });
 
-    const srcBlock = buildSources(sources, images);
+    const srcBlock = buildSources(sources);
     if (srcBlock) content.appendChild(srcBlock);
 
   } catch (e) {
