@@ -256,6 +256,12 @@
       <button class="eye-btn" onclick="toggleKeyVis()" title="Show/hide">👁</button>
     </div>
 
+    <div class="key-input-wrap" style="margin-top: 14px;">
+      <label style="font-size: 12px; color: var(--text2); display: block; margin-bottom: 6px;">Gemini API Key (optional, for AI-generated diagrams)</label>
+      <input type="password" id="geminiKeyInput" placeholder="Your Gemini API key" autocomplete="off" />
+      <button class="eye-btn" onclick="toggleGeminiKeyVis()" title="Show/hide">👁</button>
+    </div>
+
     <div style="text-align:left;margin-bottom:10px;font-size:12px;color:var(--text3);">Choose model</div>
     <div class="model-row" id="modelRow">
       <div class="model-opt selected" data-model="llama-3.3-70b-versatile" onclick="selectModel(this)">
@@ -390,16 +396,33 @@ keyInput.addEventListener('input', () => {
 
 function toggleKeyVis() { keyInput.type = keyInput.type === 'password' ? 'text' : 'password'; }
 
+function toggleGeminiKeyVis() { 
+  const inp = document.getElementById('geminiKeyInput');
+  if (inp) inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
 function selectModel(el) {
   document.querySelectorAll('.model-opt').forEach(o => o.classList.remove('selected'));
   el.classList.add('selected');
   selectedModel = el.dataset.model;
 }
+function toggleGeminiKeyVis() { 
+  const inp = document.getElementById('geminiKeyInput');
+  if (inp) inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
 
 function saveKey() {
   // Note: API key should be set via environment variable, not this modal
   // This function is kept for backwards compatibility
   groqKey = keyInput.value.trim();
+  
+  // Save Gemini key if provided
+  const geminiInput = document.getElementById('geminiKeyInput');
+  if (geminiInput && geminiInput.value.trim()) {
+    localStorage.setItem('geminiKey', geminiInput.value.trim());
+  }
+  
   // Store model preference in localStorage (models can still be user-selected)
   localStorage.setItem('mediq_model', selectedModel);
   document.getElementById('modelTag').textContent = 'model: ' + selectedModel;
@@ -449,6 +472,10 @@ QUICK.forEach(q => {
 function showChat() {
   document.getElementById('welcome').style.display = 'none';
   document.getElementById('chatWrap').classList.add('visible');
+  const geminiInput = document.getElementById('geminiKeyInput');
+  if (geminiInput && geminiInput.value.trim()) {
+    localStorage.setItem('geminiKey', geminiInput.value.trim());
+  }
 }
 
 function clearChat() {
@@ -602,387 +629,64 @@ function extractMedicalTerms(query) {
 async function fetchMedicalDiagrams(query) {
   const diagrams = [];
   const cleanQuery = query.replace(/[?!.]/g, '').trim();
-  const medicalTerms = cleanQuery.toLowerCase();
-  const seen = new Set();
+  
+  // Get API key from localStorage (user provides it in the modal)
+  const geminiKey = localStorage.getItem('geminiKey');
+  
+  if (geminiKey && cleanQuery.length > 0) {
+    try {
+      // Call Gemini to generate a labeled SVG diagram
+      const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + encodeURIComponent(geminiKey), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: `Generate a detailed, labeled SVG diagram of ${cleanQuery}.
 
-  // Helper: add diagram only if not a dupe
-  function addDiagram(d) {
-    if (!seen.has(d.src) && diagrams.length < 5) {
-      seen.add(d.src);
-      diagrams.push(d);
+Requirements:
+- Create valid SVG code (starts with <svg and ends with </svg>)
+- Include clear labels for all anatomical parts or tech components
+- Use simple shapes (circles, rectangles, paths) and text elements
+- Add distinct colors to different structures for clarity
+- Make it educational and accurate
+- Include a title at the top showing "${cleanQuery}"
+- Make the SVG responsive: width="100%" height="auto" viewBox="0 0 400 500"
+- Response must be ONLY the SVG code, no markdown or explanation
+
+Return ONLY the complete SVG code.`
+            }]
+          }]
+        })
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        let svgCode = data.candidates[0].content.parts[0].text;
+        
+        // Clean up SVG (remove markdown code blocks if present)
+        if (svgCode.includes('```')) {
+          svgCode = svgCode.split('```')[1].trim();
+          if (svgCode.startsWith('svg')) {
+            svgCode = svgCode.substring(3).trim();
+          }
+        }
+        
+        // Make sure it has proper SVG structure
+        if (svgCode.includes('<svg') && svgCode.includes('</svg>')) {
+          diagrams.push({
+            type: 'svg',
+            content: svgCode,
+            title: cleanQuery.charAt(0).toUpperCase() + cleanQuery.slice(1)
+          });
+        }
+      }
+    } catch (e) {
+      console.log('Gemini diagram generation error:', e.message);
     }
   }
-
-  // ── PRIMARY SOURCE: Verified curated medical image map (English-only) ────────
-  // Authoritative sources: Wikimedia Commons (peer-reviewed, direct URLs - no resize required)
-  const medicalImageMap = {
-  "heart": [
-    "https://upload.wikimedia.org/wikipedia/commons/d/d0/Heart_diagram.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/0/0a/Anatomy_of_the_heart.jpg"
-  ],
-  "artery": [
-    "https://upload.wikimedia.org/wikipedia/commons/8/8d/Arteries_and_veins.png",
-    "https://upload.wikimedia.org/wikipedia/commons/e/e2/Artery_and_vein_cross_section.png"
-  ],
-  "vein": [
-    "https://upload.wikimedia.org/wikipedia/commons/8/8d/Arteries_and_veins.png",
-    "https://upload.wikimedia.org/wikipedia/commons/e/e2/Vein_structure.png"
-  ],
-  "blood": [
-    "https://upload.wikimedia.org/wikipedia/commons/8/8f/Red_blood_cells.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/c/c9/Blood_types.png"
-  ],
-  "circulation": [
-    "https://upload.wikimedia.org/wikipedia/commons/5/5a/Circulatory_system.png",
-    "https://upload.wikimedia.org/wikipedia/commons/0/0a/Blood_circulation.jpg"
-  ],
-  "capillary": [
-    "https://upload.wikimedia.org/wikipedia/commons/1/1f/Capillary_exchange.png",
-    "https://upload.wikimedia.org/wikipedia/commons/6/68/Capillary_bed.jpg"
-  ],
-  "brain": [
-    "https://upload.wikimedia.org/wikipedia/commons/4/4d/Brain_diagram.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/0/0a/Human_brain_anatomy.png"
-  ],
-  "synapse": [
-    "https://upload.wikimedia.org/wikipedia/commons/a/a9/Synapse.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/1/1d/Synaptic_transmission.png"
-  ],
-  "neuron": [
-    "https://upload.wikimedia.org/wikipedia/commons/e/e8/Neuron_structure.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/b/b5/Neuron_anatomy.png"
-  ],
-  "nerve": [
-    "https://upload.wikimedia.org/wikipedia/commons/3/39/Nerve_fiber.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/7/79/Peripheral_nervous_system.png"
-  ],
-  "spinal cord": [
-    "https://upload.wikimedia.org/wikipedia/commons/0/0f/Spinal_cord_anatomy.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/1/1b/Spinal_nerve.png"
-  ],
-  "lung": [
-    "https://upload.wikimedia.org/wikipedia/commons/9/9d/Lungs_diagram.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/3/3a/Respiratory_system.png"
-  ],
-  "breathing": [
-    "https://upload.wikimedia.org/wikipedia/commons/9/9d/Respiration_diagram.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/7/7a/Gas_exchange_lungs.png"
-  ],
-  "trachea": [
-    "https://upload.wikimedia.org/wikipedia/commons/0/0b/Trachea_anatomy.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/5/5f/Windpipe.png"
-  ],
-  "bronchi": [
-    "https://upload.wikimedia.org/wikipedia/commons/6/66/Bronchi_anatomy.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/d/d9/Bronchial_tree.png"
-  ],
-  "stomach": [
-    "https://upload.wikimedia.org/wikipedia/commons/a/a8/Stomach_diagram.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/f/f2/Stomach_anatomy.png"
-  ],
-  "liver": [
-    "https://upload.wikimedia.org/wikipedia/commons/5/5f/Liver_anatomy.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/8/8a/Liver_position.png"
-  ],
-  "intestine": [
-    "https://upload.wikimedia.org/wikipedia/commons/c/c6/Small_intestine.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/e/e5/Intestinal_villi.png"
-  ],
-  "colon": [
-    "https://upload.wikimedia.org/wikipedia/commons/f/f8/Colon_anatomy.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/2/2b/Large_intestine.png"
-  ],
-  "pancreas": [
-    "https://upload.wikimedia.org/wikipedia/commons/3/3f/Pancreas_anatomy.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/e/e4/Pancreas_location.png"
-  ],
-  "thyroid": [
-    "https://upload.wikimedia.org/wikipedia/commons/1/1a/Thyroid_anatomy.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/8/89/Thyroid_gland.png"
-  ],
-  "hormone": [
-    "https://upload.wikimedia.org/wikipedia/commons/3/3e/Hormone_binding.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/9/94/Endocrine_system.png"
-  ],
-  "gland": [
-    "https://upload.wikimedia.org/wikipedia/commons/f/f8/Endocrine_glands.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/3/3d/Glandular_tissue.png"
-  ],
-  "pituitary": [
-    "https://upload.wikimedia.org/wikipedia/commons/0/0c/Pituitary_gland.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/7/79/Hypothalamic_pituitary_axis.png"
-  ],
-  "immune": [
-    "https://upload.wikimedia.org/wikipedia/commons/0/0f/Immune_system.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/5/5c/Lymphatic_system.png"
-  ],
-  "antibody": [
-    "https://upload.wikimedia.org/wikipedia/commons/3/33/Antibody.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/b/b7/Antibody_structure.png"
-  ],
-  "vaccine": [
-    "https://upload.wikimedia.org/wikipedia/commons/7/72/Vaccine_mechanism.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/f/f5/Immunization.png"
-  ],
-  "lymphocyte": [
-    "https://upload.wikimedia.org/wikipedia/commons/8/8e/T_cell.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/c/c3/B_cell.png"
-  ],
-  "inflammation": [
-    "https://upload.wikimedia.org/wikipedia/commons/1/1c/Inflammation.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/d/d2/Inflammatory_response.png"
-  ],
-  "skeleton": [
-    "https://upload.wikimedia.org/wikipedia/commons/5/5a/Skeleton.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/8/88/Human_skeleton_anatomy.png"
-  ],
-  "bone": [
-    "https://upload.wikimedia.org/wikipedia/commons/2/2e/Bone_structure.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/3/3f/Bone_anatomy.png"
-  ],
-  "spine": [
-    "https://upload.wikimedia.org/wikipedia/commons/5/5e/Vertebral_column.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/8/81/Spine_anatomy.png"
-  ],
-  "vertebra": [
-    "https://upload.wikimedia.org/wikipedia/commons/f/f5/Vertebra_anatomy.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/6/69/Vertebral_structure.png"
-  ],
-  "rib": [
-    "https://upload.wikimedia.org/wikipedia/commons/2/2e/Rib_cage.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/1/1a/Ribcage_anatomy.png"
-  ],
-  "cartilage": [
-    "https://upload.wikimedia.org/wikipedia/commons/1/13/Cartilage_structure.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/4/42/Cartilage_types.png"
-  ],
-  "ligament": [
-    "https://upload.wikimedia.org/wikipedia/commons/9/9f/Ligament_anatomy.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/2/25/Ligament_types.png"
-  ],
-  "joint": [
-    "https://upload.wikimedia.org/wikipedia/commons/8/8b/Joint_anatomy.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/d/d5/Joint_types.png"
-  ],
-  "muscle": [
-    "https://upload.wikimedia.org/wikipedia/commons/4/42/Muscle_anatomy.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/8/8a/Muscular_system.png"
-  ],
-  "bicep": [
-    "https://upload.wikimedia.org/wikipedia/commons/7/75/Biceps_brachii.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/2/26/Arm_muscles.png"
-  ],
-  "kidney": [
-    "https://upload.wikimedia.org/wikipedia/commons/c/c8/Kidney_anatomy.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/7/7f/Kidneys_location.png"
-  ],
-  "bladder": [
-    "https://upload.wikimedia.org/wikipedia/commons/f/f2/Bladder_anatomy.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/1/18/Urinary_bladder.png"
-  ],
-  "urethra": [
-    "https://upload.wikimedia.org/wikipedia/commons/3/3c/Urethra_anatomy.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/e/e4/Urine_flow.png"
-  ],
-  "eye": [
-    "https://upload.wikimedia.org/wikipedia/commons/0/02/Eye_anatomy.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/5/51/Human_eye_cross_section.png"
-  ],
-  "ear": [
-    "https://upload.wikimedia.org/wikipedia/commons/4/44/Ear_anatomy.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/0/01/Inner_ear.png"
-  ],
-  "nose": [
-    "https://upload.wikimedia.org/wikipedia/commons/0/0c/Nose_anatomy.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/5/57/Nasal_cavity.png"
-  ],
-  "tongue": [
-    "https://upload.wikimedia.org/wikipedia/commons/3/33/Tongue_anatomy.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/f/f6/Taste_buds.png"
-  ],
-  "skin": [
-    "https://upload.wikimedia.org/wikipedia/commons/4/44/Skin_anatomy.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/8/8e/Skin_layers.png"
-  ],
-  "hair": [
-    "https://upload.wikimedia.org/wikipedia/commons/0/08/Hair_follicle_anatomy.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/2/26/Hair_structure.png"
-  ],
-  "ovary": [
-    "https://upload.wikimedia.org/wikipedia/commons/8/8d/Ovary_anatomy.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/1/1c/Female_reproductive_system.png"
-  ],
-  "testis": [
-    "https://upload.wikimedia.org/wikipedia/commons/4/48/Testis_anatomy.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/3/3a/Male_reproductive_system.png"
-  ],
-  "cell": [
-    "https://upload.wikimedia.org/wikipedia/commons/0/0f/Animal_cell_structure.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/8/80/Cell_anatomy.png"
-  ],
-  "mitochondria": [
-    "https://upload.wikimedia.org/wikipedia/commons/8/8c/Mitochondrion.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/f/f0/Mitochondria_structure.png"
-  ],
-  "dna": [
-    "https://upload.wikimedia.org/wikipedia/commons/5/5b/DNA_structure.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/f/f7/DNA_double_helix.png"
-  ],
-  "ribosome": [
-    "https://upload.wikimedia.org/wikipedia/commons/3/3c/Ribosome.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/8/87/Ribosome_structure.png"
-  ],
-  "protein": [
-    "https://upload.wikimedia.org/wikipedia/commons/4/49/Protein_structure.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/7/7d/Amino_acid.png"
-  ],
-  "enzyme": [
-    "https://upload.wikimedia.org/wikipedia/commons/6/64/Enzyme_catalysis.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/2/28/Enzyme_structure.png"
-  ],
-  "stem cell": [
-    "https://upload.wikimedia.org/wikipedia/commons/9/91/Stem_cell.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/1/1a/Cell_differentiation.png"
-  ],
-  "metabolism": [
-    "https://upload.wikimedia.org/wikipedia/commons/7/7c/Metabolism_pathways.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/3/3f/Energy_production.png"
-  ],
-  "glucose": [
-    "https://upload.wikimedia.org/wikipedia/commons/8/8f/Glucose_structure.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/4/47/Glycolysis.png"
-  ],
-  "oxygen": [
-    "https://upload.wikimedia.org/wikipedia/commons/8/8f/Oxygen_molecule.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/e/e1/Aerobic_respiration.png"
-  ],
-  "xray": [
-    "https://upload.wikimedia.org/wikipedia/commons/0/0f/X-ray_machine.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/5/5c/Chest_X-ray.png"
-  ],
-  "ultrasound": [
-    "https://upload.wikimedia.org/wikipedia/commons/7/75/Ultrasound_machine.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/8/8c/Ultrasound_imaging.png"
-  ],
-  "mri": [
-    "https://upload.wikimedia.org/wikipedia/commons/1/1a/MRI_machine.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/3/35/Brain_MRI.png"
-  ],
-  "ct scan": [
-    "https://upload.wikimedia.org/wikipedia/commons/5/55/CT_scanner.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/7/7c/CT_scan_image.png"
-  ],
-  "stethoscope": [
-    "https://upload.wikimedia.org/wikipedia/commons/8/82/Stethoscope.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/5/5e/Stethoscope_use.png"
-  ],
-  "microscope": [
-    "https://upload.wikimedia.org/wikipedia/commons/f/f6/Microscope.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/8/8d/Microscopy.png"
-  ],
-  "syringe": [
-    "https://upload.wikimedia.org/wikipedia/commons/0/0a/Syringe.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/3/3c/Injection.png"
-  ],
-  "thermometer": [
-    "https://upload.wikimedia.org/wikipedia/commons/5/5f/Thermometer.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/1/1d/Temperature_measurement.png"
-  ],
-  "blood pressure": [
-    "https://upload.wikimedia.org/wikipedia/commons/9/9d/Blood_pressure_monitor.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/2/2e/Blood_pressure_measurement.png"
-  ],
-  "ecg": [
-    "https://upload.wikimedia.org/wikipedia/commons/4/46/ECG_machine.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/8/8f/Electrocardiogram.png"
-  ],
-  "pacemaker": [
-    "https://upload.wikimedia.org/wikipedia/commons/5/5a/Pacemaker.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/1/1b/Pacemaker_implant.png"
-  ],
-  "prosthetic": [
-    "https://upload.wikimedia.org/wikipedia/commons/3/36/Prosthetic_limb.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/7/7a/Prosthetics.png"
-  ],
-  "surgical tool": [
-    "https://upload.wikimedia.org/wikipedia/commons/a/a8/Surgical_instruments.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/1/17/Scalpel.png"
-  ],
-  "microscopy": [
-    "https://upload.wikimedia.org/wikipedia/commons/8/8d/Microscopy.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/f/f9/Histology.png"
-  ],
-  "laboratory": [
-    "https://upload.wikimedia.org/wikipedia/commons/6/6e/Laboratory.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/2/2d/Lab_equipment.png"
-  ],
-  "incubator": [
-    "https://upload.wikimedia.org/wikipedia/commons/1/1c/Incubator.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/8/8b/Cell_culture.png"
-  ],
-  "centrifuge": [
-    "https://upload.wikimedia.org/wikipedia/commons/5/51/Centrifuge.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/7/7f/Separation_technique.png"
-  ],
-  "petri dish": [
-    "https://upload.wikimedia.org/wikipedia/commons/1/1d/Petri_dish.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/4/4f/Culture_plate.png"
-  ],
-  "ventilator": [
-    "https://upload.wikimedia.org/wikipedia/commons/3/3e/Ventilator.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/9/9f/Mechanical_ventilation.png"
-  ],
-  "dialysis": [
-    "https://upload.wikimedia.org/wikipedia/commons/0/0e/Dialysis_machine.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/5/5d/Kidney_dialysis.png"
-  ],
-  "ambulance": [
-    "https://upload.wikimedia.org/wikipedia/commons/7/7f/Ambulance.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/4/4e/Emergency_response.png"
-  ]
-};
-
-  // Search curated map for matching terms
-  for (const [term, urls] of Object.entries(medicalImageMap)) {
-    if (diagrams.length >= 5) break;
-    if (medicalTerms.includes(term)) {
-      for (const src of urls) {
-        addDiagram({
-          title: term.charAt(0).toUpperCase() + term.slice(1) + ' Diagram',
-          src,
-          url: `https://en.wikipedia.org/wiki/${encodeURIComponent(term)}`,
-          source: '📚 Medical Reference'
-        });
-      }
-    }
-  }
-
-  // Fallback: generic medical images when no specific match found
-  if (diagrams.length === 0) {
-    const fallbacks = [
-      {
-        title: 'Human Anatomy',
-        src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/78/Gray1090.png/320px-Gray1090.png',
-        source: '📚 Gray\'s Anatomy',
-        url: 'https://en.wikipedia.org/wiki/Anatomy'
-      },
-      {
-        title: 'Cell Structure',
-        src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/48/Animal_cell_structure_en.svg/400px-Animal_cell_structure_en.svg.png',
-        source: '📚 Medical Reference',
-        url: 'https://en.wikipedia.org/wiki/Cell_(biology)'
-      },
-      {
-        title: 'Body Systems',
-        src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8d/Illu_body_cavities.jpg/300px-Illu_body_cavities.jpg',
-        source: '📚 Anatomy',
-        url: 'https://en.wikipedia.org/wiki/Human_anatomy'
-      }
-    ];
-    fallbacks.forEach(f => addDiagram(f));
-  }
-
-  return diagrams.slice(0, 5);
+  
+  return diagrams;
 }
 
 function buildSources(sources, images) {
@@ -1000,42 +704,58 @@ function buildSources(sources, images) {
     imgGallery.insertAdjacentElement('beforebegin', lbl);
     
     images.forEach(img => {
-      const imgCard = document.createElement('div');
-      imgCard.className = 'image-card';
-      
-      // Create image with better error handling
-      const imgEl = document.createElement('img');
-      imgEl.src = img.src;
-      imgEl.alt = img.title;
-      imgEl.loading = 'lazy';
-      imgEl.onerror = function() { 
-        this.style.display = 'none'; 
-        this.parentElement.style.opacity = '0.5';
-      };
-      
-      const source = document.createElement('div');
-      source.className = 'image-source';
-      source.textContent = img.source;
-      
-      imgCard.appendChild(imgEl);
-      imgCard.appendChild(source);
-      imgCard.style.cursor = 'pointer';
-      imgCard.onclick = () => {
-        // Open in new tab or display enlarged
-        const modal = document.createElement('div');
-        modal.style.cssText = `
-          position: fixed; inset: 0; background: rgba(0,0,0,0.9); 
-          display: flex; align-items: center; justify-content: center; 
-          z-index: 999; cursor: pointer;
+      if (img.type === 'svg') {
+        // Render SVG diagram directly
+        const svgWrapper = document.createElement('div');
+        svgWrapper.style.cssText = `
+          background: var(--card); 
+          border: 1px solid var(--border); 
+          border-radius: 12px; 
+          padding: 16px; 
+          margin-bottom: 16px; 
+          width: 100%;
         `;
-        const largeImg = document.createElement('img');
-        largeImg.src = img.src;
-        largeImg.style.cssText = `max-width: 90%; max-height: 90%; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.5);`;
-        modal.appendChild(largeImg);
-        modal.onclick = () => modal.remove();
-        document.body.appendChild(modal);
-      };
-      imgGallery.appendChild(imgCard);
+        svgWrapper.innerHTML = img.content;
+        imgGallery.appendChild(svgWrapper);
+      } else {
+        // Render regular image
+        const imgCard = document.createElement('div');
+        imgCard.className = 'image-card';
+        
+        // Create image with better error handling
+        const imgEl = document.createElement('img');
+        imgEl.src = img.src;
+        imgEl.alt = img.title;
+        imgEl.loading = 'lazy';
+        imgEl.onerror = function() { 
+          this.style.display = 'none'; 
+          this.parentElement.style.opacity = '0.5';
+        };
+        
+        const source = document.createElement('div');
+        source.className = 'image-source';
+        source.textContent = img.source;
+        
+        imgCard.appendChild(imgEl);
+        imgCard.appendChild(source);
+        imgCard.style.cursor = 'pointer';
+        imgCard.onclick = () => {
+          // Open in new tab or display enlarged
+          const modal = document.createElement('div');
+          modal.style.cssText = `
+            position: fixed; inset: 0; background: rgba(0,0,0,0.9); 
+            display: flex; align-items: center; justify-content: center; 
+            z-index: 999; cursor: pointer;
+          `;
+          const largeImg = document.createElement('img');
+          largeImg.src = img.src;
+          largeImg.style.cssText = `max-width: 90%; max-height: 90%; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.5);`;
+          modal.appendChild(largeImg);
+          modal.onclick = () => modal.remove();
+          document.body.appendChild(modal);
+        };
+        imgGallery.appendChild(imgCard);
+      }
     });
     wrap.appendChild(imgGallery);
   }
