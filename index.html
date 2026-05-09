@@ -4,6 +4,9 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>MedIQ — Health Tech & Anatomy Explorer</title>
+<link rel="manifest" href="/manifest.json" />
+<meta name="theme-color" content="#ff5e7e" />
+<meta name="description" content="Fast health information powered by Groq AI" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet" />
 <style>
@@ -299,6 +302,7 @@
         <div class="topbar-sub" id="topbarSub">Select a topic or ask anything</div>
       </div>
       <div class="topbar-actions">
+        <button class="tb-btn" id="installBtn" onclick="installApp()" style="display:none;" title="Install MedIQ as an app">⬇ Install</button>
         <button class="tb-btn" onclick="showKeyModal()" title="API key configured via environment variable">⚙ Config</button>
         <button class="tb-btn" onclick="clearChat()">New chat</button>
       </div>
@@ -656,6 +660,40 @@ async function submitQuestion(question, displayText, searchQuery) {
 
   document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
   isLoading = false;
+}
+
+/* ============ PWA ============ */
+let deferredPrompt;
+const installBtn = document.getElementById('installBtn');
+
+// Check if PWA can be installed
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredPrompt = e;
+  installBtn.style.display = 'block';
+});
+
+// Handle install button click
+async function installApp() {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  const { outcome } = await deferredPrompt.userChoice;
+  console.log(`User response to install prompt: ${outcome}`);
+  deferredPrompt = null;
+  installBtn.style.display = 'none';
+}
+
+// Hide button after install
+window.addEventListener('appinstalled', () => {
+  installBtn.style.display = 'none';
+  console.log('MedIQ was installed');
+});
+
+// Register service worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').then(reg => {
+    console.log('Service Worker registered', reg);
+  }).catch(err => console.log('SW registration failed:', err));
 }
 </script>
 </body>
