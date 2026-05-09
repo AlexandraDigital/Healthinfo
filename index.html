@@ -248,19 +248,8 @@
 <div class="modal-overlay" id="modalOverlay">
   <div class="modal-box">
     <div class="modal-icon">⚡</div>
-    <h2>Groq API Configuration</h2>
-    <p>MedIQ uses Groq's ultra-fast inference engine. Set your API key via environment variable: <code style="background: var(--bg3); padding: 4px 8px; border-radius: 4px;">REACT_APP_GROQ_API_KEY</code> or inject <code style="background: var(--bg3); padding: 4px 8px; border-radius: 4px;">window.GROQ_API_KEY</code>. Get a key at <a href="https://console.groq.com" target="_blank">console.groq.com</a>.</p>
-
-    <div class="key-input-wrap">
-      <input type="password" id="apiKeyInput" placeholder="gsk_••••••••••••••••••••••••" autocomplete="off" />
-      <button class="eye-btn" onclick="toggleKeyVis()" title="Show/hide">👁</button>
-    </div>
-
-    <div class="key-input-wrap" style="margin-top: 14px;">
-      <label style="font-size: 12px; color: var(--text2); display: block; margin-bottom: 6px;">Gemini API Key (optional, for AI-generated diagrams)</label>
-      <input type="password" id="geminiKeyInput" placeholder="Your Gemini API key" autocomplete="off" />
-      <button class="eye-btn" onclick="toggleGeminiKeyVis()" title="Show/hide">👁</button>
-    </div>
+    <h2>MedIQ Configuration</h2>
+    <p>MedIQ is configured to use <strong>Groq</strong> for ultra-fast AI responses and <strong>Gemini</strong> for generating medical diagrams. Both APIs are accessed securely via Cloudflare Pages Functions — your API keys are never exposed to the browser.</p>
 
     <div style="text-align:left;margin-bottom:10px;font-size:12px;color:var(--text3);">Choose model</div>
     <div class="model-row" id="modelRow">
@@ -278,8 +267,8 @@
       </div>
     </div>
 
-    <button class="start-btn" id="startBtn" onclick="saveKey()" disabled>Save Fallback API Key</button>
-    <div class="modal-note">Set <strong>GROQ_API_KEY</strong> environment variable, or save here as fallback.</div>
+    <button class="start-btn" id="startBtn" onclick="saveModel()">Continue →</button>
+    <div class="modal-note">API keys are configured via Cloudflare Pages environment variables for security.</div>
   </div>
 </div>
 
@@ -345,8 +334,8 @@
 
 <script>
 /* ============ STATE ============ */
-// API key from environment variable
-let groqKey = process.env?.GROQ_API_KEY || '';
+// API keys are handled server-side via Cloudflare Pages Functions
+// No client-side key storage needed
 let selectedModel = localStorage.getItem('mediq_model') || 'llama-3.3-70b-versatile';
 let history = [];
 let isLoading = false;
@@ -385,70 +374,33 @@ Topics: anatomy, wearables, medical imaging, AI in medicine, genomics, neuroscie
 Format with ## section headers, **bold** key terms, and bullet lists. Be accurate, use analogies, mention real breakthroughs. Keep responses educational and engaging.`;
 
 /* ============ MODAL ============ */
-const keyInput = document.getElementById('apiKeyInput');
 const startBtn = document.getElementById('startBtn');
-
-keyInput.addEventListener('input', () => {
-  const v = keyInput.value.trim();
-  startBtn.disabled = v.length < 20;
-  startBtn.textContent = v.length < 20 ? 'Enter API key to continue' : 'Start Exploring →';
-});
-
-function toggleKeyVis() { keyInput.type = keyInput.type === 'password' ? 'text' : 'password'; }
-
-function toggleGeminiKeyVis() { 
-  const inp = document.getElementById('geminiKeyInput');
-  if (inp) inp.type = inp.type === 'password' ? 'text' : 'password';
-}
+startBtn.disabled = false;
 
 function selectModel(el) {
   document.querySelectorAll('.model-opt').forEach(o => o.classList.remove('selected'));
   el.classList.add('selected');
   selectedModel = el.dataset.model;
 }
-function toggleGeminiKeyVis() { 
-  const inp = document.getElementById('geminiKeyInput');
-  if (inp) inp.type = inp.type === 'password' ? 'text' : 'password';
-}
 
-
-function saveKey() {
-  // Note: API key should be set via environment variable, not this modal
-  // This function is kept for backwards compatibility
-  groqKey = keyInput.value.trim();
-  
-  // Save Gemini key if provided
-  const geminiInput = document.getElementById('geminiKeyInput');
-  if (geminiInput && geminiInput.value.trim()) {
-    localStorage.setItem('geminiKey', geminiInput.value.trim());
-  }
-  
-  // Store model preference in localStorage (models can still be user-selected)
+function saveModel() {
+  // Store model preference in localStorage
   localStorage.setItem('mediq_model', selectedModel);
   document.getElementById('modelTag').textContent = 'model: ' + selectedModel;
   document.getElementById('modalOverlay').classList.add('hidden');
 }
 
 function showKeyModal() {
-  keyInput.value = groqKey;
-  keyInput.type = 'password';
-  startBtn.disabled = groqKey.length < 20;
-  startBtn.textContent = groqKey.length >= 20 ? 'Save & Continue →' : 'Enter API key to continue';
-  // sync model selection
+  // Sync model selection
   document.querySelectorAll('.model-opt').forEach(o => {
     o.classList.toggle('selected', o.dataset.model === selectedModel);
   });
   document.getElementById('modalOverlay').classList.remove('hidden');
 }
 
-// Init
-// Hide modal if API key is available from environment variable
-if (!groqKey) {
-  document.getElementById('modalOverlay').classList.remove('hidden');
-} else {
-  document.getElementById('modalOverlay').classList.add('hidden');
-  document.getElementById('modelTag').textContent = 'model: ' + selectedModel;
-}
+// Init: Hide modal on page load (APIs are configured server-side)
+document.getElementById('modalOverlay').classList.add('hidden');
+document.getElementById('modelTag').textContent = 'model: ' + selectedModel;
 
 /* ============ BUILD UI ============ */
 const listEl = document.getElementById('topicsList');
@@ -630,59 +582,34 @@ async function fetchMedicalDiagrams(query) {
   const diagrams = [];
   const cleanQuery = query.replace(/[?!.]/g, '').trim();
   
-  // Get API key from localStorage (user provides it in the modal)
-  const geminiKey = localStorage.getItem('geminiKey');
-  
-  if (geminiKey && cleanQuery.length > 0) {
+  if (cleanQuery.length > 0) {
     try {
-      // Call Gemini to generate a labeled SVG diagram
-      const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + encodeURIComponent(geminiKey), {
+      // Call Cloudflare Pages Function for Gemini diagram generation
+      // The function uses env.GEMINI_API_KEY, so the key is never exposed to the browser
+      const response = await fetch('/api/generate-diagram', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: `Generate a detailed, labeled SVG diagram of ${cleanQuery}.
-
-Requirements:
-- Create valid SVG code (starts with <svg and ends with </svg>)
-- Include clear labels for all anatomical parts or tech components
-- Use simple shapes (circles, rectangles, paths) and text elements
-- Add distinct colors to different structures for clarity
-- Make it educational and accurate
-- Include a title at the top showing "${cleanQuery}"
-- Make the SVG responsive: width="100%" height="auto" viewBox="0 0 400 500"
-- Response must be ONLY the SVG code, no markdown or explanation
-
-Return ONLY the complete SVG code.`
-            }]
-          }]
-        })
+        body: JSON.stringify({ query: cleanQuery })
       });
       
       if (response.ok) {
         const data = await response.json();
-        let svgCode = data.candidates[0].content.parts[0].text;
+        let svgCode = data.svg;
         
-        // Clean up SVG (remove markdown code blocks if present)
-        if (svgCode.includes('```')) {
-          svgCode = svgCode.split('```')[1].trim();
-          if (svgCode.startsWith('svg')) {
-            svgCode = svgCode.substring(3).trim();
-          }
-        }
-        
-        // Make sure it has proper SVG structure
-        if (svgCode.includes('<svg') && svgCode.includes('</svg>')) {
+        // SVG should be clean from the function, but do a quick validation
+        if (svgCode && svgCode.includes('<svg') && svgCode.includes('</svg>')) {
           diagrams.push({
             type: 'svg',
             content: svgCode,
             title: cleanQuery.charAt(0).toUpperCase() + cleanQuery.slice(1)
           });
         }
+      } else {
+        const error = await response.json().catch(() => ({}));
+        console.log('Diagram generation error:', error.error || 'Unknown error');
       }
     } catch (e) {
-      console.log('Gemini diagram generation error:', e.message);
+      console.log('Diagram fetch error:', e.message);
     }
   }
   
@@ -787,22 +714,29 @@ function buildSources(sources, images) {
 /* ============ GROQ API ============ */
 async function callGroq(question) {
   const msgs = [{ role:'system', content:SYSTEM }, ...history];
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+  
+  // Call Cloudflare Pages Function for Groq API
+  // The function uses env.GROQ_API_KEY, so the key is never exposed to the browser
+  const res = await fetch('/api/chat', {
     method: 'POST',
-    headers: { 'Content-Type':'application/json', 'Authorization':`Bearer ${groqKey}` },
-    body: JSON.stringify({ model: selectedModel, max_tokens: 1024, messages: msgs }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 
+      model: selectedModel, 
+      max_tokens: 1024, 
+      messages: msgs 
+    }),
   });
+  
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || `HTTP ${res.status}`);
+    throw new Error(err.error || `HTTP ${res.status}`);
   }
   const data = await res.json();
-  return data.choices?.[0]?.message?.content || 'No response received.';
+  return data.response || 'No response received.';
 }
 
 /* ============ SUBMIT ============ */
 async function submitQuestion(question, displayText, searchQuery) {
-  if (!groqKey) { showKeyModal(); return; }
   if (isLoading) return;
   isLoading = true;
 
