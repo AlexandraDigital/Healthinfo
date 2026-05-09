@@ -465,8 +465,12 @@ function showChat() {
   }
   
   // Load/render Google Custom Search if not already loaded
-  if (window.google && window.google.search && window.google.search.cse) {
-    window.google.search.cse.element.render();
+  try {
+    if (window.google && window.google.search && window.google.search.cse && window.google.search.cse.element) {
+      window.google.search.cse.element.render();
+    }
+  } catch (e) {
+    console.warn('⚠️ CSE render error (will retry on search):', e.message);
   }
 }
 
@@ -522,12 +526,26 @@ function searchGoogle() {
   const gcseWrapper = document.getElementById('gcseWrapper');
   if (gcseWrapper) gcseWrapper.classList.add('visible');
   
-  // Execute Google Custom Search
-  if (window.google && window.google.search && window.google.search.cse && window.google.search.cse.element) {
-    console.log('🔍 Searching Google CSE for:', text);
-    window.google.search.cse.element.getElement(0).execute(text);
-  } else {
-    console.warn('⚠️ Google Custom Search not loaded yet. Try again in a moment.');
+  // Execute Google Custom Search with proper error handling
+  try {
+    if (window.google && 
+        window.google.search && 
+        window.google.search.cse && 
+        window.google.search.cse.element &&
+        typeof window.google.search.cse.element.getElement === 'function') {
+      console.log('🔍 Searching Google CSE for:', text);
+      const element = window.google.search.cse.element.getElement(0);
+      if (element && typeof element.execute === 'function') {
+        element.execute(text);
+      } else {
+        console.warn('⚠️ CSE element not ready. Try again in a moment.');
+      }
+    } else {
+      console.warn('⚠️ Google Custom Search not loaded yet. Try again in a moment.');
+    }
+  } catch (e) {
+    console.error('❌ CSE search error:', e.message);
+    alert('Google Search temporarily unavailable. Try again in a moment.');
   }
 }
 
