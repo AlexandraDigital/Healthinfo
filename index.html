@@ -335,7 +335,7 @@
 <script>
 /* ============ STATE ============ */
 // API key from environment variable
-let groqKey = process.env?.GROQ_API_KEY || window.GROQ_API_KEY || '';
+let groqKey = process.env?.GROQ_API_KEY || '';
 let selectedModel = localStorage.getItem('mediq_model') || 'llama-3.3-70b-versatile';
 let history = [];
 let isLoading = false;
