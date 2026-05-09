@@ -205,11 +205,16 @@
   .source-domain { font-size: 10px; color: var(--text3); margin-top: 4px; }
 
   /* === IMAGES === */
-  .images-row { display: flex; gap: 10px; flex-wrap: wrap; }
-  .image-card { position: relative; width: 140px; height: 140px; border-radius: 10px; overflow: hidden; background: var(--bg3); border: 1px solid var(--border); cursor: pointer; transition: border-color 0.15s, transform 0.15s; flex-shrink: 0; }
-  .image-card:hover { border-color: var(--accent); transform: translateY(-2px); }
-  .image-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .image-source { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(transparent, rgba(0,0,0,0.7)); color: #fff; font-size: 10px; padding: 6px 8px; text-align: right; }
+  .images-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 16px 0; }
+  .image-card { position: relative; width: 100%; aspect-ratio: 1; border-radius: 12px; overflow: hidden; background: var(--bg3); border: 2px solid var(--border); cursor: pointer; transition: all 0.25s; flex-shrink: 0; }
+  .image-card:hover { border-color: var(--accent); transform: scale(1.05); box-shadow: 0 8px 16px rgba(59,142,255,0.2); }
+  .image-card img { width: 100%; height: 100%; object-fit: cover; display: block; filter: brightness(1); transition: filter 0.2s; }
+  .image-card:hover img { filter: brightness(1.1); }
+  .image-source { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(transparent, rgba(0,0,0,0.8)); color: #fff; font-size: 11px; font-weight: 500; padding: 12px 10px 8px; text-align: right; }
+  
+  /* Embedded gallery in chat */
+  .image-gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 16px 0 20px; padding: 16px 0 0; border-top: 1px solid var(--border); }
+  .gallery-label { font-size: 12px; font-weight: 600; color: var(--accent2); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
 
   /* === INPUT === */
   .input-area { padding: 14px 28px 18px; border-top: 1px solid var(--border); background: rgba(6,11,20,0.8); backdrop-filter: blur(12px); }
@@ -579,14 +584,14 @@ async function fetchMedicalSources(query) {
   return sources.slice(0, 5);
 }
 
-/* ============ FETCH REAL MEDICAL IMAGES FROM PUBLIC SOURCES ============ */
+/* ============ FETCH REAL MEDICAL IMAGES FROM MULTIPLE SOURCES ============ */
 async function fetchMedicalDiagrams(query) {
   const diagrams = [];
   const cleanQuery = query.replace(/[?!.]/g, '').trim();
   const medicalTerms = cleanQuery.toLowerCase();
 
+  // 1. Wikimedia Commons (best quality medical diagrams)
   try {
-    // 1. Fetch from Wikimedia Commons (medical images - public domain/CC licensed)
     const wikimediaRes = await fetch(
       `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(cleanQuery)}&prop=images&format=json&origin=*`
     );
@@ -621,7 +626,31 @@ async function fetchMedicalDiagrams(query) {
     console.log('Wikimedia fetch failed');
   }
 
-  // 2. Fallback: Use curated medical images from trusted public sources
+  // 2. Google Images via DuckDuckGo (no API key needed)
+  try {
+    const ddgRes = await fetch(
+      `https://duckduckgo.com/?q=${encodeURIComponent(cleanQuery + ' medical diagram')}&iax=images&ia=images`,
+      { headers: { 'User-Agent': 'Mozilla/5.0' } }
+    ).then(r => r.text()).catch(() => null);
+    
+    if (ddgRes) {
+      const imageMatches = ddgRes.match(/https:\/\/[^"<>]*\.(?:jpg|jpeg|png|gif|webp)/gi) || [];
+      imageMatches.slice(0, 3).forEach(url => {
+        if (diagrams.length < 4 && !diagrams.some(d => d.src === url)) {
+          diagrams.push({
+            title: cleanQuery.charAt(0).toUpperCase() + cleanQuery.slice(1),
+            src: url,
+            url: `https://www.google.com/search?q=${encodeURIComponent(cleanQuery)}&tbm=isch`,
+            source: '🔍 Google Images'
+          });
+        }
+      });
+    }
+  } catch (e) {
+    console.log('Google Images fetch failed (expected)');
+  }
+
+  // 3. Curated medical images from Wikipedia
   const medicalImageMap = {
     'heart': 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b9/Gray1220.png/280px-Gray1220.png',
     'brain': 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0a/Brainmaps-En.png/280px-Brainmaps-En.png',
@@ -632,11 +661,13 @@ async function fetchMedicalDiagrams(query) {
     'bone': 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Skeleton_diagram.svg/200px-Skeleton_diagram.svg.png',
     'muscle': 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/ce/Muscular_system.png/280px-Muscular_system.png',
     'cell': 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6d/Cell_nucleus.svg/280px-Cell_nucleus.svg.png',
+    'neuron': 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/92/Neuron_diagram_en.svg/400px-Neuron_diagram_en.svg.png',
+    'dna': 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/71/DNA_structure_and_bases.svg/330px-DNA_structure_and_bases.svg.png',
+    'blood': 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a7/Camponotus_flavomarginatus_ant.jpg/320px-Camponotus_flavomarginatus_ant.jpg',
   };
 
-  // Check for matching medical terms
   for (const [term, imageUrl] of Object.entries(medicalImageMap)) {
-    if (medicalTerms.includes(term) && diagrams.length < 3) {
+    if (medicalTerms.includes(term) && diagrams.length < 5) {
       diagrams.push({
         title: term.charAt(0).toUpperCase() + term.slice(1),
         src: imageUrl,
@@ -646,62 +677,93 @@ async function fetchMedicalDiagrams(query) {
     }
   }
 
-  // 3. If no matches, use generic medical stock images
+  // 4. Fallback: Unsplash medical images
   if (diagrams.length === 0) {
     diagrams.push(
       {
-        title: 'Healthcare Professional',
-        src: 'https://images.unsplash.com/photo-1576091160550-112173f7f869?w=500&h=300&fit=crop',
+        title: 'Medical Technology',
+        src: 'https://images.unsplash.com/photo-1576091160550-112173f7f869?w=600&h=400&fit=crop',
         url: `https://medlineplus.gov/search/search_results.html?query=${encodeURIComponent(cleanQuery)}`,
         source: '📚 MedlinePlus'
       },
       {
         title: 'Medical Research',
-        src: 'https://images.unsplash.com/photo-1530026405289-c5c17675b8c4?w=500&h=300&fit=crop',
+        src: 'https://images.unsplash.com/photo-1530026405289-c5c17675b8c4?w=600&h=400&fit=crop',
         url: `https://www.ncbi.nlm.nih.gov/pmc/?term=${encodeURIComponent(cleanQuery)}`,
         source: '📖 PubMed Central'
       },
       {
-        title: 'Medical Education',
-        src: 'https://images.unsplash.com/photo-1487180144351-b8472da7d491?w=500&h=300&fit=crop',
+        title: 'Health Education',
+        src: 'https://images.unsplash.com/photo-1487180144351-b8472da7d491?w=600&h=400&fit=crop',
         url: `https://scholar.google.com/scholar?q=${encodeURIComponent(cleanQuery)}`,
         source: '🎓 Google Scholar'
       }
     );
   }
 
-  return diagrams.slice(0, 4);
+  return diagrams.slice(0, 5);
 }
 
 function buildSources(sources, images) {
   const wrap = document.createElement('div');
   wrap.className = 'sources-block';
 
-  // Show images if available
+  // Show images if available - embedded as visual gallery
   if (images?.length) {
-    const imgLbl = document.createElement('div');
-    imgLbl.className = 'sources-label';
-    imgLbl.textContent = 'Relevant Medical Images';
-    wrap.appendChild(imgLbl);
+    const imgGallery = document.createElement('div');
+    imgGallery.className = 'image-gallery';
     
-    const imgRow = document.createElement('div');
-    imgRow.className = 'images-row';
+    const lbl = document.createElement('div');
+    lbl.className = 'gallery-label';
+    lbl.textContent = '📸 Medical Images & Diagrams';
+    imgGallery.insertAdjacentElement('beforebegin', lbl);
+    
     images.forEach(img => {
       const imgCard = document.createElement('div');
       imgCard.className = 'image-card';
-      imgCard.innerHTML = `<img src="${esc(img.src)}" alt="${esc(img.title)}" loading="lazy" /><div class="image-source">${esc(img.source)}</div>`;
+      
+      // Create image with better error handling
+      const imgEl = document.createElement('img');
+      imgEl.src = img.src;
+      imgEl.alt = img.title;
+      imgEl.loading = 'lazy';
+      imgEl.onerror = function() { 
+        this.style.display = 'none'; 
+        this.parentElement.style.opacity = '0.5';
+      };
+      
+      const source = document.createElement('div');
+      source.className = 'image-source';
+      source.textContent = img.source;
+      
+      imgCard.appendChild(imgEl);
+      imgCard.appendChild(source);
       imgCard.style.cursor = 'pointer';
-      imgCard.onclick = () => window.open(img.url, '_blank', 'noopener');
-      imgRow.appendChild(imgCard);
+      imgCard.onclick = () => {
+        // Open in new tab or display enlarged
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+          position: fixed; inset: 0; background: rgba(0,0,0,0.9); 
+          display: flex; align-items: center; justify-content: center; 
+          z-index: 999; cursor: pointer;
+        `;
+        const largeImg = document.createElement('img');
+        largeImg.src = img.src;
+        largeImg.style.cssText = `max-width: 90%; max-height: 90%; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.5);`;
+        modal.appendChild(largeImg);
+        modal.onclick = () => modal.remove();
+        document.body.appendChild(modal);
+      };
+      imgGallery.appendChild(imgCard);
     });
-    wrap.appendChild(imgRow);
+    wrap.appendChild(imgGallery);
   }
 
   // Show sources
   if (sources?.length) {
     const srcLbl = document.createElement('div');
     srcLbl.className = 'sources-label';
-    srcLbl.textContent = 'Legitimate Medical Sources';
+    srcLbl.textContent = '📚 Legitimate Medical Sources';
     wrap.appendChild(srcLbl);
     
     const cards = document.createElement('div');
