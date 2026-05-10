@@ -44,7 +44,7 @@ export async function onRequest(context) {
       body: JSON.stringify({
         model: model || 'llama-3.3-70b-versatile',
         messages: messages,
-        max_tokens: max_tokens || 1024,
+        max_tokens: max_tokens || 2048,  // Increased for comprehensive medical explanations
         temperature: 0.7,
       }),
     });
